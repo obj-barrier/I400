@@ -3,12 +3,12 @@
 const VSHADER_SOURCE = `
     attribute vec3 a_Position;
     uniform mat4 u_Model;
-    uniform mat4 u_World;
     uniform mat4 u_View;
+    uniform mat4 u_Proj;
     attribute vec3 a_Color;
     varying vec3 v_Color;
     void main() {
-        gl_Position = u_View * u_World * u_Model * vec4(a_Position, 1.0);
+        gl_Position = u_Proj * u_View * u_Model * vec4(a_Position, 1.0);
         v_Color = a_Color;
     }
 `
@@ -27,20 +27,26 @@ var g_lastFrameMS
 
 // GLSL uniform references
 var g_u_model_ref
-var g_u_world_ref
 var g_u_view_ref
+var g_u_proj_ref
 
 // usual model/world matrices
+var g_leftPropMatrix
+var g_rightPropMatrix
+var g_planeMatrix
 var g_modelMatrix
-var g_worldMatrix
-var g_modelMatrix_i400LeftProp
 
-var g_viewMatrix
+// camera projection values
+var g_camera_x
+var g_camera_y
+var g_camera_z
+var g_isPerspective
 
 // Mesh definitions
 var g_i400BodyMesh
 var g_i400HatchMesh
 var g_i400PropMesh
+var g_planeMesh
 var g_gridMesh
 
 // We're using triangles, so our vertices each have 3 elements
@@ -50,6 +56,20 @@ const TRIANGLE_SIZE = 3
 const FLOAT_SIZE = 4
 
 function main() {
+    // Setup our camera movement sliders
+    slider_input = document.getElementById('sliderX')
+    slider_input.addEventListener('input', (event) => {
+        updateCameraX(event.target.value)
+    })
+    slider_input = document.getElementById('sliderY')
+    slider_input.addEventListener('input', (event) => {
+        updateCameraY(event.target.value)
+    })
+    slider_input = document.getElementById('sliderZ')
+    slider_input.addEventListener('input', (event) => {
+        updateCameraZ(event.target.value)
+    })
+
     g_canvas = document.getElementById('canvas')
 
     // Get the rendering context for WebGL
@@ -82,6 +102,10 @@ async function loadOBJFiles() {
     g_i400PropMesh = []
     readObjFile(data, g_i400PropMesh)
 
+    data = await fetch('./resources/Plane.obj').then(response => response.text()).then((x) => x)
+    g_planeMesh = []
+    readObjFile(data, g_planeMesh)
+
     // Wait to load our models before starting to render
     startRendering()
 }
@@ -96,9 +120,9 @@ function startRendering() {
     // initialize the VBO
     var gridInfo = buildGridAttributes(1, 1, [0.0, 0.0, 1.0])
     g_gridMesh = gridInfo[0]
-    var i400Length = g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length
+    var i400Length = g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length
     var i400Colors = buildColorAttributes(i400Length / 3)
-    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(gridInfo[0]).concat(i400Colors).concat(gridInfo[1])
+    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(gridInfo[0]).concat(i400Colors).concat(gridInfo[1])
     if (!initVBO(new Float32Array(data))) {
         return
     }
@@ -113,18 +137,14 @@ function startRendering() {
 
     // Get references to GLSL uniforms
     g_u_model_ref = gl.getUniformLocation(gl.program, 'u_Model')
-    g_u_world_ref = gl.getUniformLocation(gl.program, 'u_World')
     g_u_view_ref = gl.getUniformLocation(gl.program, 'u_View')
-
-    // Setup our model by scaling
-    g_modelMatrix = new Matrix4()
-    g_modelMatrix_i400LeftProp = new Matrix4().setTranslate(54.25, -4.7443, 2.2903)
-    g_modelMatrix_i400RightProp = new Matrix4().setTranslate(54.25, -4.7443, -2.2902)
+    g_u_proj_ref = gl.getUniformLocation(gl.program, 'u_Proj')
 
     // Reposition our mesh
-    g_worldMatrix = new Matrix4().setScale(-.015625, .015625, .015625)
-
-    g_viewMatrix = new Matrix4()//.setRotate(-90, 0, 1, 0)
+    g_leftPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, 2.2903)
+    g_rightPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, -2.2902)
+    g_planeMatrix = new Matrix4()
+    g_modelMatrix = new Matrix4().setScale(0.015625, 0.015625, -0.015625)
 
     // Enable culling and depth tests
     gl.enable(gl.CULL_FACE)
@@ -133,11 +153,50 @@ function startRendering() {
     // Setup for ticks
     g_lastFrameMS = Date.now()
 
+    // Initially set our camera to be at the origin
+    updateCameraX(0)
+    updateCameraY(0)
+    updateCameraZ(1)
+    g_isPerspective = false
+
     tick()
+}
+
+function updateCameraX(amount) {
+    label = document.getElementById('cameraX')
+    label.textContent = `Camera X: ${Number(amount).toFixed(2)}`
+    g_camera_x = Number(amount)
+}
+function updateCameraY(amount) {
+    label = document.getElementById('cameraY')
+    label.textContent = `Camera Y: ${Number(amount).toFixed(2)}`
+    g_camera_y = Number(amount)
+}
+function updateCameraZ(amount) {
+    label = document.getElementById('cameraZ')
+    label.textContent = `Camera Z: ${Number(amount).toFixed(2)}`
+    g_camera_z = Number(amount)
+}
+
+function togglePerspective() {
+    g_isPerspective = !g_isPerspective
+    g_modelMatrix.scale(1, 1, -1)
 }
 
 // extra constants for cleanliness
 var ROTATION_SPEED = 1
+var PLANE_SPEED = 0.125
+var SUB_SPEED = 0.0001
+
+var g_launching = false
+function launchPlane() {
+    g_launching = true
+}
+function resetPlane() {
+    g_launching = false
+}
+
+var g_distance = 0
 
 // function to apply all the logic for a single frame tick
 function tick() {
@@ -150,9 +209,18 @@ function tick() {
     g_lastFrameMS = current_time
 
     // rotate the arm constantly around the given axis (of the model)
-    angle = ROTATION_SPEED * deltaTime
-    g_modelMatrix_i400LeftProp.rotate(-angle, 1, 0, 0)
-    g_modelMatrix_i400RightProp.rotate(-angle, 1, 0, 0)
+    var angle = -ROTATION_SPEED * deltaTime
+    g_leftPropMatrix.rotate(angle, 1, 0, 0)
+    g_rightPropMatrix.rotate(angle, 1, 0, 0)
+
+    var speed = -PLANE_SPEED * deltaTime
+    if (g_launching) {
+        g_planeMatrix.translate(speed, speed * Math.tan(-0.0625), 0)
+    } else {
+        g_planeMatrix.setIdentity()
+    }
+
+    g_distance += SUB_SPEED * deltaTime
 
     draw()
 
@@ -161,16 +229,35 @@ function tick() {
 
 // draw to the screen on the next frame
 function draw() {
+    // Setup our camera
+    var viewMatrix = new Matrix4()
+    var projMatrix = new Matrix4()
+    if (g_isPerspective) {
+        viewMatrix.setLookAt(
+            -g_camera_x, g_camera_y, -g_camera_z,
+            0, 0, 0,
+            0, 1, 0
+        )
+        projMatrix.setPerspective(90, 1.777778, 0.1, 100)
+    } else {
+        viewMatrix.setLookAt(
+            0, 0, 0,
+            -g_camera_x, g_camera_y, g_camera_z,
+            0, 1, 0
+        )
+        projMatrix.setOrtho(-1.6, 1.6, -0.9, 0.9, 2, -2)
+    }
+
     // Update with our global transformation matrices
     gl.uniformMatrix4fv(g_u_model_ref, false, g_modelMatrix.elements)
-    gl.uniformMatrix4fv(g_u_world_ref, false, g_worldMatrix.elements)
-    gl.uniformMatrix4fv(g_u_view_ref, false, g_viewMatrix.elements)
+    gl.uniformMatrix4fv(g_u_view_ref, false, viewMatrix.elements)
+    gl.uniformMatrix4fv(g_u_proj_ref, false, projMatrix.elements)
 
     // Clear the canvas with a black background
     gl.clearColor(0.0, 0.75, 1.0, 1.0)
     gl.clear(gl.COLOR_BUFFER_BIT)
 
-    // draw our one model (the teapot)
+    // Draw our models
     var first = 0, count = g_i400BodyMesh.length / 3
     gl.drawArrays(gl.TRIANGLES, first, count)
 
@@ -178,18 +265,22 @@ function draw() {
     count = g_i400HatchMesh.length / 3
     gl.drawArrays(gl.TRIANGLES, first, count)
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, g_modelMatrix_i400LeftProp.elements)
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_modelMatrix).concat(g_leftPropMatrix).elements)
     first += count
     count = g_i400PropMesh.length / 3
     gl.drawArrays(gl.TRIANGLES, first, count)
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, g_modelMatrix_i400RightProp.elements)
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_modelMatrix).concat(g_rightPropMatrix).elements)
+    gl.drawArrays(gl.TRIANGLES, first, count)
+
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_modelMatrix).concat(g_planeMatrix).elements)
+    first += count
+    count = g_planeMesh.length / 3
     gl.drawArrays(gl.TRIANGLES, first, count)
 
     // the grid has a constant identity matrix for model and world
     // world includes our Y offset
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().elements)
-    gl.uniformMatrix4fv(g_u_world_ref, false, new Matrix4().translate(0, GRID_Y_OFFSET, 0).elements)
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().translate(g_distance, GRID_Y_OFFSET, 0).scale(0.25, 0.25, 0.25).elements)
 
     // draw the grid
     first += count
