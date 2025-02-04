@@ -158,9 +158,12 @@ function startRendering() {
     // initialize the VBO
     var gridInfo = buildGridAttributes(1, 1, [0.0, 0.0, 1.0])
     g_gridMesh = gridInfo[0]
-    var i400Length = g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length
-    var i400Colors = buildColorAttributes(i400Length / 3)
-    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(gridInfo[0]).concat(i400Colors).concat(gridInfo[1])
+    var i400BodyColors = buildShipColorAttributes(g_i400BodyMesh.length / 3, g_i400BodyMesh)
+    var i400HatchColors = buildShipColorAttributes(g_i400HatchMesh.length / 3, g_i400HatchMesh)
+    var i400PropColors = buildPropColorAttributes(g_i400PropMesh.length / 3)
+    var planeColors = buildPlaneColorAttributes(g_planeMesh.length / 3)
+    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(gridInfo[0]).
+        concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(gridInfo[1])
     if (!initVBO(new Float32Array(data))) {
         return
     }
@@ -169,7 +172,7 @@ function startRendering() {
     if (!setupVec3('a_Position', 0, 0)) {
         return
     }
-    if (!setupVec3('a_Color', 0, (i400Length + gridInfo[0].length) * FLOAT_SIZE)) {
+    if (!setupVec3('a_Color', 0, (g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length + gridInfo[0].length) * FLOAT_SIZE)) {
         return -1
     }
 
@@ -193,7 +196,7 @@ function startRendering() {
 
     // Initially set our camera to be at the origin
     updateCameraX(0)
-    updateCameraY(1)
+    updateCameraY(0.5)
     updateCameraZ(1)
     g_isPerspective = true
 
@@ -296,7 +299,7 @@ function draw() {
             0, 0, 0,
             0, 1, 0
         )
-        projMatrix.setPerspective(90, 1.777778, 0.1, 100)
+        projMatrix.setPerspective(60, 1.777778, 0.1, 100)
     } else {
         viewMatrix.setLookAt(
             0, 0, 0,
@@ -347,16 +350,46 @@ function draw() {
 
 // Helper to construct colors
 // makes every triangle a slightly different shade of blue
-function buildColorAttributes(vertex_count) {
+function buildShipColorAttributes(vertex_count, mesh) {
     var colors = []
     for (var i = 0; i < vertex_count / 3; i++) {
         // three vertices per triangle
         for (var vert = 0; vert < 3; vert++) {
-            var shade = (i * 3) / vertex_count
-            colors.push(shade, shade, shade)
+            var shade = i * 3 / vertex_count
+            if (shade > 0.75) {
+                shade = shade * 4 - 3
+            }
+            if (mesh[(i * 3 + vert) * 3 + 1] < -0.5) {
+                colors.push(shade, 0, 0)
+            } else {
+                colors.push(shade, shade, shade)
+            }
         }
     }
+    return colors
+}
 
+function buildPropColorAttributes(vertex_count) {
+    var colors = []
+    for (var i = 0; i < vertex_count / 3; i++) {
+        // three vertices per triangle
+        for (var vert = 0; vert < 3; vert++) {
+            var shade = i * 1.5 / vertex_count + 0.5
+            colors.push(shade, shade, 0)
+        }
+    }
+    return colors
+}
+
+function buildPlaneColorAttributes(vertex_count) {
+    var colors = []
+    for (var i = 0; i < vertex_count / 3; i++) {
+        // three vertices per triangle
+        for (var vert = 0; vert < 3; vert++) {
+            var shade = i * 1.5 / vertex_count
+            colors.push(shade, 0.5, shade)
+        }
+    }
     return colors
 }
 
