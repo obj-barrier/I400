@@ -55,19 +55,57 @@ const TRIANGLE_SIZE = 3
 // The size in bytes of a floating point
 const FLOAT_SIZE = 4
 
+var g_moving_up = false
+var g_moving_left = false
+var g_moving_down = false
+var g_moving_right = false
+var g_moving_back = false
+var g_moving_foward = false
+
 function main() {
-    // Setup our camera movement sliders
-    slider_input = document.getElementById('sliderX')
-    slider_input.addEventListener('input', (event) => {
-        updateCameraX(event.target.value)
+    window.addEventListener('keydown', function (event) {
+        switch (event.key.toLowerCase()) {
+            case 'w':
+                g_moving_up = true
+                break
+            case 'a':
+                g_moving_left = true
+                break
+            case 's':
+                g_moving_down = true
+                break
+            case 'd':
+                g_moving_right = true
+                break
+            case 'q':
+                g_moving_back = true
+                break
+            case 'e':
+                g_moving_foward = true
+                break
+        }
     })
-    slider_input = document.getElementById('sliderY')
-    slider_input.addEventListener('input', (event) => {
-        updateCameraY(event.target.value)
-    })
-    slider_input = document.getElementById('sliderZ')
-    slider_input.addEventListener('input', (event) => {
-        updateCameraZ(event.target.value)
+    window.addEventListener('keyup', function (event) {
+        switch (event.key.toLowerCase()) {
+            case 'w':
+                g_moving_up = false
+                break
+            case 'a':
+                g_moving_left = false
+                break
+            case 's':
+                g_moving_down = false
+                break
+            case 'd':
+                g_moving_right = false
+                break
+            case 'q':
+                g_moving_back = false
+                break
+            case 'e':
+                g_moving_foward = false
+                break
+        }
     })
 
     g_canvas = document.getElementById('canvas')
@@ -144,7 +182,7 @@ function startRendering() {
     g_leftPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, 2.2903)
     g_rightPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, -2.2902)
     g_planeMatrix = new Matrix4()
-    g_modelMatrix = new Matrix4().setScale(0.015625, 0.015625, -0.015625)
+    g_modelMatrix = new Matrix4().setScale(0.015625, 0.015625, 0.015625)
 
     // Enable culling and depth tests
     gl.enable(gl.CULL_FACE)
@@ -155,9 +193,9 @@ function startRendering() {
 
     // Initially set our camera to be at the origin
     updateCameraX(0)
-    updateCameraY(0)
+    updateCameraY(1)
     updateCameraZ(1)
-    g_isPerspective = false
+    g_isPerspective = true
 
     tick()
 }
@@ -184,6 +222,7 @@ function togglePerspective() {
 }
 
 // extra constants for cleanliness
+var CAMERA_SPEED = 0.002
 var ROTATION_SPEED = 1
 var PLANE_SPEED = 0.125
 var SUB_SPEED = 0.0001
@@ -207,6 +246,25 @@ function tick() {
     var current_time = Date.now()
     deltaTime = current_time - g_lastFrameMS
     g_lastFrameMS = current_time
+
+    if (g_moving_up) {
+        updateCameraY(g_camera_y + CAMERA_SPEED * deltaTime)
+    }
+    if (g_moving_left) {
+        updateCameraX(g_camera_x - CAMERA_SPEED * deltaTime)
+    }
+    if (g_moving_down) {
+        updateCameraY(g_camera_y - CAMERA_SPEED * deltaTime)
+    }
+    if (g_moving_right) {
+        updateCameraX(g_camera_x + CAMERA_SPEED * deltaTime)
+    }
+    if (g_moving_back) {
+        updateCameraZ(g_camera_z + CAMERA_SPEED * deltaTime)
+    }
+    if (g_moving_foward) {
+        updateCameraZ(g_camera_z - CAMERA_SPEED * deltaTime)
+    }
 
     // rotate the arm constantly around the given axis (of the model)
     var angle = -ROTATION_SPEED * deltaTime
