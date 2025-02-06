@@ -344,7 +344,7 @@ function tick() {
         if (g_distance_torp > UBOAT_DIST - 1.3) {
             g_hit = true
         }
-        g_torpMatrix = new Matrix4().setTranslate(speed, 0, 0).concat(g_torpMatrix)
+        g_torpMatrix = new Matrix4().setTranslate(speed, 0, 0).concat(g_torpMatrix).rotate(angle / 2, 1, 0, 0)
     }
 
     if (g_hit && g_explScale < 25) {
