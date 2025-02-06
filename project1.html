@@ -39,11 +39,13 @@
 
     <div>
         <input type="button" onclick="togglePerspective()" value="Toggle Perspective">
+        <input id="target" style="visibility:hidden" type="button" onclick="switchTarget()" value="Switch Target">
     </div>
 
     <p>
         <input type="button" onclick="launchPlane()" value="Launch Plane">
-        <input type="button" onclick="resetPlane()" value="Reset Plane">
+        <input id="torpedo" style="visibility:hidden" type="button" onclick="fireTorp()" value="Fire Torpedo">
+        <input type="button" onclick="reset()" value="Reset">
     </p>
 
 </body>

@@ -31,23 +31,30 @@ var g_u_view_ref
 var g_u_proj_ref
 
 // usual model/world matrices
+var g_i400Matrix
 var g_leftPropMatrix
 var g_rightPropMatrix
 var g_planeMatrix
-var g_modelMatrix
+var g_uboatMatrix
+var g_torpMatrix
+var g_explMatrix
 
 // camera projection values
 var g_camera_x
 var g_camera_y
 var g_camera_z
 var g_isPerspective
+var g_isTargeting
 
 // Mesh definitions
 var g_i400BodyMesh
 var g_i400HatchMesh
 var g_i400PropMesh
 var g_planeMesh
+var g_uboatMesh
 var g_gridMesh
+var g_torpMesh
+var g_explMesh
 
 // We're using triangles, so our vertices each have 3 elements
 const TRIANGLE_SIZE = 3
@@ -144,9 +151,23 @@ async function loadOBJFiles() {
     g_planeMesh = []
     readObjFile(data, g_planeMesh)
 
+    data = await fetch('./resources/Uboat.obj').then(response => response.text()).then((x) => x)
+    g_uboatMesh = []
+    readObjFile(data, g_uboatMesh)
+
+    data = await fetch('./resources/Torpedo.obj').then(response => response.text()).then((x) => x)
+    g_torpMesh = []
+    readObjFile(data, g_torpMesh)
+
+    data = await fetch('./resources/Explosion.obj').then(response => response.text()).then((x) => x)
+    g_explMesh = []
+    readObjFile(data, g_explMesh)
+
     // Wait to load our models before starting to render
     startRendering()
 }
+
+const UBOAT_DIST = 10
 
 function startRendering() {
     // Initialize GPU's vertex and fragment shaders programs
@@ -156,14 +177,17 @@ function startRendering() {
     }
 
     // initialize the VBO
-    var gridInfo = buildGridAttributes(1, 1, [0.0, 0.0, 1.0])
-    g_gridMesh = gridInfo[0]
-    var i400BodyColors = buildShipColorAttributes(g_i400BodyMesh.length / 3, g_i400BodyMesh)
-    var i400HatchColors = buildShipColorAttributes(g_i400HatchMesh.length / 3, g_i400HatchMesh)
+    var i400BodyColors = buildI400ColorAttributes(g_i400BodyMesh.length / 3, g_i400BodyMesh)
+    var i400HatchColors = buildColorAttributes(g_i400HatchMesh.length / 3)
     var i400PropColors = buildPropColorAttributes(g_i400PropMesh.length / 3)
     var planeColors = buildPlaneColorAttributes(g_planeMesh.length / 3)
-    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(gridInfo[0]).
-        concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(gridInfo[1])
+    var uboatColors = buildColorAttributes(g_uboatMesh.length / 3)
+    var torpColors = buildColorAttributes(g_torpMesh.length / 3)
+    var explColors = buildExplColorAttributes(g_explMesh.length / 3)
+    var gridInfo = buildGridAttributes(1, 1, [0.0, 0.0, 1.0])
+    g_gridMesh = gridInfo[0]
+    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(g_uboatMesh).concat(g_torpMesh).concat(g_explMesh).concat(gridInfo[0]).
+        concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(gridInfo[1])
     if (!initVBO(new Float32Array(data))) {
         return
     }
@@ -172,7 +196,8 @@ function startRendering() {
     if (!setupVec3('a_Position', 0, 0)) {
         return
     }
-    if (!setupVec3('a_Color', 0, (g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length + gridInfo[0].length) * FLOAT_SIZE)) {
+    if (!setupVec3('a_Color', 0, (g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length +
+        g_uboatMesh.length + g_torpMesh.length + g_explMesh.length + gridInfo[0].length) * FLOAT_SIZE)) {
         return -1
     }
 
@@ -182,10 +207,13 @@ function startRendering() {
     g_u_proj_ref = gl.getUniformLocation(gl.program, 'u_Proj')
 
     // Reposition our mesh
+    g_i400Matrix = new Matrix4().setScale(0.015625, 0.015625, 0.015625)
     g_leftPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, 2.2903)
     g_rightPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, -2.2902)
     g_planeMatrix = new Matrix4()
-    g_modelMatrix = new Matrix4().setScale(0.015625, 0.015625, 0.015625)
+    g_uboatMatrix = new Matrix4().setTranslate(-UBOAT_DIST, 0, 0).scale(0.03125, 0.03125, 0.03125)
+    g_torpMatrix = new Matrix4().setTranslate(-0.9, -0.04, 0).scale(0.0625, 0.0625, 0.0625)
+    g_explMatrix = new Matrix4().setTranslate(-UBOAT_DIST + 0.5, 0, 0).scale(0.1, 0.1, 0.1)
 
     // Enable culling and depth tests
     gl.enable(gl.CULL_FACE)
@@ -199,6 +227,7 @@ function startRendering() {
     updateCameraY(0.5)
     updateCameraZ(1)
     g_isPerspective = true
+    g_isTargeting = false
 
     tick()
 }
@@ -221,24 +250,54 @@ function updateCameraZ(amount) {
 
 function togglePerspective() {
     g_isPerspective = !g_isPerspective
-    g_modelMatrix.scale(1, 1, -1)
+}
+function switchTarget() {
+    g_isTargeting = !g_isTargeting
+    if (g_isTargeting) {
+        updateCameraX(g_camera_x + UBOAT_DIST)
+    } else {
+        updateCameraX(g_camera_x - UBOAT_DIST)
+    }
 }
 
 // extra constants for cleanliness
-var CAMERA_SPEED = 0.002
-var ROTATION_SPEED = 1
-var PLANE_SPEED = 0.125
-var SUB_SPEED = 0.0001
+const CAMERA_SPEED = 0.002
+const ROTATION_SPEED = 1
+const PLANE_SPEED = 0.125
+const SUB_SPEED = 0.0001
+const TORP_SPEED = 0.001
 
-var g_launching = false
+var g_planeLaunched = false
+var g_torpFired = false
 function launchPlane() {
-    g_launching = true
+    g_planeLaunched = true
+    document.getElementById("target").style.visibility = "visible"
+    document.getElementById("torpedo").style.visibility = "visible"
 }
-function resetPlane() {
-    g_launching = false
+function fireTorp() {
+    g_torpFired = true
 }
 
-var g_distance = 0
+var g_distance_sub = 0
+var g_distance_torp = 0
+var g_hit = false
+var g_explScale = 0
+
+function reset() {
+    if (g_isTargeting) {
+        switchTarget()
+    }
+    g_planeLaunched = false
+    g_planeMatrix.setIdentity()
+    g_torpFired = false
+    g_distance_torp = 0
+    g_torpMatrix.setTranslate(-0.9, -0.04, 0).scale(0.0625, 0.0625, 0.0625)
+    g_hit = false
+    g_explScale = 0
+    g_explMatrix.setTranslate(-UBOAT_DIST + 0.5, 0, 0).scale(0.1, 0.1, 0.1)
+    document.getElementById("target").style.visibility = "hidden"
+    document.getElementById("torpedo").style.visibility = "hidden"
+}
 
 // function to apply all the logic for a single frame tick
 function tick() {
@@ -275,13 +334,27 @@ function tick() {
     g_rightPropMatrix.rotate(angle, 1, 0, 0)
 
     var speed = -PLANE_SPEED * deltaTime
-    if (g_launching) {
+    if (g_planeLaunched) {
         g_planeMatrix.translate(speed, speed * Math.tan(-0.0625), 0)
-    } else {
-        g_planeMatrix.setIdentity()
     }
 
-    g_distance += SUB_SPEED * deltaTime
+    speed = -TORP_SPEED * deltaTime
+    if (g_torpFired) {
+        g_distance_torp -= speed
+        if (g_distance_torp > UBOAT_DIST - 1.3) {
+            g_hit = true
+        }
+        g_torpMatrix = new Matrix4().setTranslate(speed, 0, 0).concat(g_torpMatrix)
+    }
+
+    if (g_hit && g_explScale < 25) {
+        g_explScale += 0.1 * deltaTime
+    }
+    if (g_explScale >= 25) {
+        g_explMatrix.setScale(0, 0, 0)
+    }
+
+    g_distance_sub += SUB_SPEED * deltaTime
 
     draw()
 
@@ -296,21 +369,21 @@ function draw() {
     if (g_isPerspective) {
         viewMatrix.setLookAt(
             -g_camera_x, g_camera_y, -g_camera_z,
-            0, 0, 0,
+            -UBOAT_DIST * g_isTargeting, 0, 0,
             0, 1, 0
         )
         projMatrix.setPerspective(60, 1.777778, 0.1, 100)
     } else {
         viewMatrix.setLookAt(
-            0, 0, 0,
-            -g_camera_x, g_camera_y, g_camera_z,
+            -UBOAT_DIST * g_isTargeting, 0, 0,
+            g_isTargeting ? g_camera_x - 2 * UBOAT_DIST : g_camera_x, -g_camera_y, g_camera_z,
             0, 1, 0
         )
-        projMatrix.setOrtho(-1.6, 1.6, -0.9, 0.9, 2, -2)
+        projMatrix.setOrtho(-1.6, 1.6, -0.9, 0.9, -100, 100)
     }
 
     // Update with our global transformation matrices
-    gl.uniformMatrix4fv(g_u_model_ref, false, g_modelMatrix.elements)
+    gl.uniformMatrix4fv(g_u_model_ref, false, g_i400Matrix.elements)
     gl.uniformMatrix4fv(g_u_view_ref, false, viewMatrix.elements)
     gl.uniformMatrix4fv(g_u_proj_ref, false, projMatrix.elements)
 
@@ -326,31 +399,62 @@ function draw() {
     count = g_i400HatchMesh.length / 3
     gl.drawArrays(gl.TRIANGLES, first, count)
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_modelMatrix).concat(g_leftPropMatrix).elements)
     first += count
     count = g_i400PropMesh.length / 3
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_leftPropMatrix).elements)
     gl.drawArrays(gl.TRIANGLES, first, count)
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_modelMatrix).concat(g_rightPropMatrix).elements)
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_rightPropMatrix).elements)
     gl.drawArrays(gl.TRIANGLES, first, count)
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_modelMatrix).concat(g_planeMatrix).elements)
     first += count
     count = g_planeMesh.length / 3
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_planeMatrix).elements)
     gl.drawArrays(gl.TRIANGLES, first, count)
 
-    // the grid has a constant identity matrix for model and world
-    // world includes our Y offset
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().translate(g_distance, GRID_Y_OFFSET, 0).scale(0.25, 0.25, 0.25).elements)
+    first += count
+    count = g_uboatMesh.length / 3
+    if (g_planeLaunched && g_explScale < 10) {
+        gl.uniformMatrix4fv(g_u_model_ref, false, g_uboatMatrix.elements)
+        gl.drawArrays(gl.TRIANGLES, first, count)
+    }
 
+    first += count
+    count = g_torpMesh.length / 3
+    if (g_torpFired && !g_hit) {
+        gl.uniformMatrix4fv(g_u_model_ref, false, g_torpMatrix.elements)
+        gl.drawArrays(gl.TRIANGLES, first, count)
+    }
+
+    first += count
+    count = g_explMesh.length / 3
+    if (g_hit) {
+        gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_explMatrix).scale(g_explScale, g_explScale, g_explScale).elements)
+        gl.drawArrays(gl.TRIANGLES, first, count)
+    }
+
+    // the grid has a constant matrix for model
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().translate(g_distance_sub, GRID_Y_OFFSET, 0).scale(0.25, 0.25, 0.25).elements)
     // draw the grid
     first += count
     gl.drawArrays(gl.LINES, first, g_gridMesh.length / 3)
 }
 
 // Helper to construct colors
-// makes every triangle a slightly different shade of blue
-function buildShipColorAttributes(vertex_count, mesh) {
+// makes every triangle a slightly different shade of gray
+function buildColorAttributes(vertex_count) {
+    var colors = []
+    for (var i = 0; i < vertex_count / 3; i++) {
+        // three vertices per triangle
+        for (var vert = 0; vert < 3; vert++) {
+            var shade = i * 3 / vertex_count
+            colors.push(shade, shade, shade)
+        }
+    }
+    return colors
+}
+
+function buildI400ColorAttributes(vertex_count, mesh) {
     var colors = []
     for (var i = 0; i < vertex_count / 3; i++) {
         // three vertices per triangle
@@ -388,6 +492,17 @@ function buildPlaneColorAttributes(vertex_count) {
         for (var vert = 0; vert < 3; vert++) {
             var shade = i * 1.5 / vertex_count
             colors.push(shade, 0.5, shade)
+        }
+    }
+    return colors
+}
+
+function buildExplColorAttributes(vertex_count) {
+    var colors = []
+    for (var i = 0; i < vertex_count / 3; i++) {
+        // three vertices per triangle
+        for (var vert = 0; vert < 3; vert++) {
+            colors.push(1, 1, 1)
         }
     }
     return colors
