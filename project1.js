@@ -271,11 +271,14 @@ var g_planeLaunched = false
 var g_torpFired = false
 function launchPlane() {
     g_planeLaunched = true
-    document.getElementById("target").style.visibility = "visible"
-    document.getElementById("torpedo").style.visibility = "visible"
+    document.getElementById("plane").disabled = true
+    document.getElementById("target").disabled = false
+    document.getElementById("torpedo").disabled = false
+    document.getElementById("reset").disabled = false
 }
 function fireTorp() {
     g_torpFired = true
+    document.getElementById("torpedo").disabled = true
 }
 
 var g_distance_sub = 0
@@ -295,8 +298,10 @@ function reset() {
     g_hit = false
     g_explScale = 0
     g_explMatrix.setTranslate(-UBOAT_DIST + 0.5, 0, 0).scale(0.1, 0.1, 0.1)
-    document.getElementById("target").style.visibility = "hidden"
-    document.getElementById("torpedo").style.visibility = "hidden"
+    document.getElementById("plane").disabled = false
+    document.getElementById("target").disabled = true
+    document.getElementById("torpedo").disabled = true
+    document.getElementById("reset").disabled = true
 }
 
 // function to apply all the logic for a single frame tick
