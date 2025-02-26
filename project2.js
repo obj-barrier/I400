@@ -1,5 +1,3 @@
-// Last edited by Dietrich Geisler 2025
-
 const VSHADER_SOURCE = `
     attribute vec3 a_Position;
     uniform mat4 u_Model;
@@ -20,627 +18,520 @@ const FSHADER_SOURCE = `
     }
 `
 
-// references to general information
-var g_canvas
-var gl
-var g_lastFrameMS
+function setupVec3(name, stride, offset) {
+    const attributeID = gl.getAttribLocation(gl.program, `${name}`);
+    if (attributeID < 0) {
+        console.log(`Failed to get the storage location of ${name}`);
+        return false;
+    }
+    gl.vertexAttribPointer(attributeID, 3, gl.FLOAT, false, stride, offset);
+    gl.enableVertexAttribArray(attributeID);
+    return true;
+}
 
-// GLSL uniform references
-var g_u_model_ref
-var g_u_camera_ref
-var g_u_projection_ref
+function calculateCamera() {
+    if (g_isDetached) {
+        return new Matrix4().setFromQuat(
+            g_cameraRot.x, g_cameraRot.y, g_cameraRot.z, g_cameraRot.w
+        ).translate(...g_cameraPos.map(v => -v));
+    }
 
-// usual model/world matrices
-var g_i400Matrix
-var g_leftPropMatrix
-var g_rightPropMatrix
-var g_planeMatrix
-var g_uboatMatrix
-var g_torpMatrix
-var g_explMatrix
+    const cameraX = Math.cos(Math.PI * g_cameraAngle / 180);
+    const cameraY = g_cameraHeight;
+    const cameraZ = Math.sin(Math.PI * g_cameraAngle / 180);
+    const cameraPositionArray = [
+        cameraX * g_cameraDistance,
+        cameraY * g_cameraDistance,
+        cameraZ * g_cameraDistance
+    ];
+    return new Matrix4().setLookAt(...cameraPositionArray, 0, 0, 0, 0, 1, 0);
+}
 
-// camera/projection
-var g_projectionMatrix
-
-// keep track of the camera position, always looking at (0, height, 0)
-var g_cameraDistance
-var g_cameraAngle
-var g_cameraHeight
-
-// Mesh definitions
-var g_i400BodyMesh
-var g_i400HatchMesh
-var g_i400PropMesh
-var g_planeMesh
-var g_uboatMesh
-var g_torpMesh
-var g_explMesh
-var g_seaMesh
-var g_islandMesh
-
-// Key states
-var g_movingUp
-var g_movingDown
-var g_movingLeft
-var g_movingRight
-var g_movingForward
-var g_movingBackward
-
-// We're using triangles, so our vertices each have 3 elements
-const TRIANGLE_SIZE = 3
-
-// The size in bytes of a floating point
 const FLOAT_SIZE = 4
+function draw() {
+    gl.uniformMatrix4fv(g_u_camera_ref, false, calculateCamera().elements);
+    gl.uniformMatrix4fv(g_u_projection_ref, false, new Matrix4().setPerspective(90, 1.6, 0.1, 1000).elements);
 
-function main() {
-    setupKeyBinds()
+    gl.clearColor(0.0, 0.75, 1.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
-    g_canvas = document.getElementById('canvas')
-
-    // Get the rendering context for WebGL
-    gl = getWebGLContext(g_canvas, true)
-    if (!gl) {
-        console.log('Failed to get the rendering context for WebGL')
-        return
+    gl.bindBuffer(gl.ARRAY_BUFFER, VBO1);
+    if (!setupVec3('a_Position', 0, 0)) {
+        return;
+    }
+    if (!setupVec3('a_Color', 0, (g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length +
+        g_uboatMesh.length + g_torpMesh.length + g_explMesh.length + g_seaMesh.length) * FLOAT_SIZE)) {
+        return -1;
     }
 
-    // We will call this at the end of most main functions from now on
-    loadOBJFiles()
+    let first = 0, count = g_i400BodyMesh.length / 3;
+    gl.uniformMatrix4fv(g_u_model_ref, false, g_i400Matrix.elements);
+    gl.drawArrays(gl.TRIANGLES, first, count);
+
+    first += count;
+    count = g_i400HatchMesh.length / 3;
+    gl.drawArrays(gl.TRIANGLES, first, count);
+
+    first += count;
+    count = g_i400PropMesh.length / 3;
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_leftPropMatrix).elements);
+    gl.drawArrays(gl.TRIANGLES, first, count);
+
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_rightPropMatrix).elements);
+    gl.drawArrays(gl.TRIANGLES, first, count);
+
+    first += count;
+    count = g_planeMesh.length / 3;
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_planeMatrix).elements);
+    gl.drawArrays(gl.TRIANGLES, first, count);
+
+    first += count;
+    count = g_uboatMesh.length / 3;
+    if (g_planeLaunched && g_explScale < 10) {
+        gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().setTranslate(ISLAND_DIST, 0, 0).concat(g_uboatMatrix).elements);
+        gl.drawArrays(gl.TRIANGLES, first, count);
+    }
+
+    first += count;
+    count = g_torpMesh.length / 3;
+    if (g_torpFired && !g_hit) {
+        gl.uniformMatrix4fv(g_u_model_ref, false, g_torpMatrix.elements);
+        gl.drawArrays(gl.TRIANGLES, first, count);
+    }
+
+    first += count;
+    count = g_explMesh.length / 3;
+    if (g_hit) {
+        gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_explMatrix).scale(g_explScale, g_explScale, g_explScale).elements);
+        gl.drawArrays(gl.TRIANGLES, first, count);
+    }
+
+    first += count;
+    count = g_seaMesh.length / 3;
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().scale(0.25, 0.25, 0.25).translate(-g_distance_sea - 500, -0.125, -g_distance_sea - 500).elements);
+    gl.drawArrays(gl.TRIANGLES, first, count);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, VBO2);
+    if (!setupVec3('a_Position', 0, 0)) {
+        return;
+    }
+    if (!setupVec3('a_Color', 0, g_islandMesh.length * FLOAT_SIZE)) {
+        return -1;
+    }
+
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().setTranslate(ISLAND_DIST, 0, 0).concat(g_islandMatrix).elements);
+    gl.drawArrays(gl.TRIANGLES, 0, g_islandMesh.length / 3);
 }
 
-/*
- * Helper function to load OBJ files in sequence
- * For much larger files, you may are welcome to make this more parallel
- * I made everything sequential for this class to make the logic easier to follow
- */
-async function loadOBJFiles() {
-    // open our OBJ file(s)
-    data = await fetch('./resources/I400Body.obj').then(response => response.text()).then((x) => x)
-    g_i400BodyMesh = []
-    readObjFile(data, g_i400BodyMesh)
+let g_isDetached = false;
+let g_cameraPos = [-1.5, 0.5, 0];
+let g_cameraAxisX = [1, 0, 0];
+let g_cameraAxisY = [0, 1, 0];
+let g_cameraAxisZ = [0, 0, 1];
+let g_cameraRot = new Quaternion().setFromAxisAngle(0, 1, 0, 90);
+const CAMERA_SPEED_DETACH = 0.05;
+const CAMERA_SPEED_ROT = 0.5;
+const CAMERA_SPEED = .001;
+const CAMERA_SPEED_ORBIT = 0.05;
+let g_cameraDistance = 1.5
+let g_cameraAngle = 90
+let g_cameraHeight = .2
+function updateCamera(deltaTime) {
+    const inputWS = g_movingForward - g_movingBackward
+    const inputAD = g_movingLeft - g_movingRight
+    const inputQE = g_rollingLeft - g_rollingRight
+    const inputRF = g_movingUp - g_movingDown
 
-    data = await fetch('./resources/I400Hatch.obj').then(response => response.text()).then((x) => x)
-    g_i400HatchMesh = []
-    readObjFile(data, g_i400HatchMesh)
-
-    data = await fetch('./resources/I400Prop.obj').then(response => response.text()).then((x) => x)
-    g_i400PropMesh = []
-    readObjFile(data, g_i400PropMesh)
-
-    data = await fetch('./resources/Plane.obj').then(response => response.text()).then((x) => x)
-    g_planeMesh = []
-    readObjFile(data, g_planeMesh)
-
-    data = await fetch('./resources/Uboat.obj').then(response => response.text()).then((x) => x)
-    g_uboatMesh = []
-    readObjFile(data, g_uboatMesh)
-
-    data = await fetch('./resources/Torpedo.obj').then(response => response.text()).then((x) => x)
-    g_torpMesh = []
-    readObjFile(data, g_torpMesh)
-
-    data = await fetch('./resources/Explosion.obj').then(response => response.text()).then((x) => x)
-    g_explMesh = []
-    readObjFile(data, g_explMesh)
-
-    // Wait to load our models before starting to render
-    startRendering()
+    if (g_isDetached) {
+        let rotation = new Quaternion();
+        g_cameraPos = [
+            g_cameraPos[0] + g_cameraAxisX[0] * CAMERA_SPEED_DETACH * inputWS,
+            g_cameraPos[1] + g_cameraAxisX[1] * CAMERA_SPEED_DETACH * inputWS,
+            g_cameraPos[2] + g_cameraAxisX[2] * CAMERA_SPEED_DETACH * inputWS
+        ];
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisY, -CAMERA_SPEED_ROT * inputAD));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisZ, -CAMERA_SPEED_ROT * inputRF));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisX, CAMERA_SPEED_ROT * inputQE));
+        g_cameraRot.multiplySelf(rotation);
+        rotation.inverse();
+        rotation.multiplyVector3(g_cameraAxisX);
+        rotation.multiplyVector3(g_cameraAxisY);
+        rotation.multiplyVector3(g_cameraAxisZ);
+    } else {
+        g_cameraDistance -= CAMERA_SPEED * deltaTime * inputWS;
+        g_cameraDistance = Math.max(g_cameraDistance, 0.5);
+        g_cameraAngle += CAMERA_SPEED_ORBIT * deltaTime * inputAD;
+        g_cameraHeight += CAMERA_SPEED * deltaTime * inputRF;
+    }
 }
 
-const UBOAT_DIST = 10
+const ROTATION_SPEED = 1;
+let g_uboatAngle = 0;
+const PLANE_SPEED = 0.125;
+const TORP_SPEED = 0.001;
+const SEA_SPEED = 0.0005;
+let g_planeLaunched = false;
+let g_torpFired = false;
+let g_torp_dist = 0;
+let g_hit = false;
+let g_explScale = 0;
+let g_distance_sea = 0;
+function tick() {
+    const current_time = Date.now();
+    const deltaTime = current_time - g_lastFrameMS;
+    g_lastFrameMS = current_time;
 
+    updateCamera(deltaTime);
+
+    const angle = -ROTATION_SPEED * deltaTime;
+    g_leftPropMatrix.rotate(angle, 1, 0, 0);
+    g_rightPropMatrix.rotate(angle, 1, 0, 0);
+    g_uboatAngle += angle / 50;
+    if (g_uboatAngle < -360) {
+        g_uboatAngle += 360;
+    }
+    g_uboatMatrix = new Matrix4().setRotate(angle / 50, 0, 1, 0).concat(g_uboatMatrix);
+
+    let speed = -PLANE_SPEED * deltaTime;
+    if (g_planeLaunched) {
+        g_planeMatrix.translate(speed, speed * Math.tan(-0.0625), 0);
+    }
+
+    speed = TORP_SPEED * deltaTime;
+    if (g_torpFired) {
+        g_torp_dist += speed;
+        if (g_torp_dist > ISLAND_DIST - g_islandSize / 2 - 1 &&
+            g_torp_dist < ISLAND_DIST - g_islandSize / 2 - 0.8 &&
+            g_uboatAngle > -200 && g_uboatAngle < -160) {
+            g_hit = true;
+        }
+        g_torpMatrix = new Matrix4().setTranslate(speed, 0, 0).concat(g_torpMatrix).rotate(angle / 2, 1, 0, 0);
+    }
+
+    if (g_hit && g_explScale < 25) {
+        g_explScale += 0.1 * deltaTime;
+    }
+    if (g_explScale >= 25) {
+        g_explMatrix.setScale(0, 0, 0);
+    }
+
+    g_distance_sea += SEA_SPEED * deltaTime;
+
+    draw();
+    requestAnimationFrame(tick, g_canvas);
+}
+
+function initVBO(data) {
+    const VBOloc = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, VBOloc);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    return VBOloc;
+}
+
+function buildIslandColors(terrain, height) {
+    let colors = [];
+    for (let i = 0; i < terrain.length; i++) {
+        const shade = (terrain[i][1] / height + 0.5) / 2;
+        colors.push(0.3, shade, 0);
+    }
+    return colors;
+}
+function fixIsland(terrain, size) {
+    for (let i = 0; i < terrain.length; i++) {
+        const distance = Math.pow(terrain[i][0] - size / 2, 2) + Math.pow(terrain[i][2] - size / 2, 2);
+        const overSize = distance - Math.pow(size / (3.2 - size / 150), 2);
+        if (overSize > 0) {
+            terrain[i][1] = terrain[i][1] * Math.pow(1.001, -overSize) - overSize / Math.pow(size, 1.85 - size / 500);
+        }
+    }
+}
+function buildSeaColors(terrain, height) {
+    let colors = []
+    for (let i = 0; i < terrain.length; i++) {
+        const shade = (terrain[i][1] / height - 0.25) * 3 + 0.25;
+        colors.push(shade, shade, 1.0);
+    }
+    return colors;
+}
+
+let g_seaMesh, g_islandMesh;
+function generateIsland(size) {
+    size *= 10;
+    const seed = new Date().getMilliseconds();
+    const options = {
+        width: size,
+        height: 0.5 + 0.002 * size,
+        depth: size,
+        seed: seed,
+        noisefn: 'perlin', // 'wave', 'simplex' and 'perlin'
+        roughness: 5 + 0.05 * size
+    };
+    const island = g_terrainGenerator.generateTerrainMesh(options);
+    fixIsland(island, size);
+    g_islandMesh = [];
+    for (let i = 0; i < island.length; i++) {
+        g_islandMesh.push(...island[i]);
+    }
+    const islandColors = buildIslandColors(island, options.height);
+
+    VBO2 = initVBO(new Float32Array(g_islandMesh.concat(islandColors)));
+}
+
+function buildExplColorAttributes(vertex_count) {
+    let colors = [];
+    for (let i = 0; i < vertex_count; i++) {
+        colors.push(1, 1, 1);
+    }
+    return colors;
+}
+function buildColorAttributes(vertex_count) {
+    let colors = [];
+    for (let i = 0; i < vertex_count / 3; i++) {
+        for (let vert = 0; vert < 3; vert++) {
+            const shade = i * 3 / vertex_count;
+            colors.push(shade, shade, shade);
+        }
+    }
+    return colors;
+}
+function buildPlaneColorAttributes(vertex_count) {
+    let colors = [];
+    for (let i = 0; i < vertex_count / 3; i++) {
+        for (let vert = 0; vert < 3; vert++) {
+            const shade = i * 1.5 / vertex_count;
+            colors.push(shade, 0.5, shade);
+        }
+    }
+    return colors;
+}
+function buildPropColorAttributes(vertex_count) {
+    let colors = [];
+    for (let i = 0; i < vertex_count / 3; i++) {
+        for (let vert = 0; vert < 3; vert++) {
+            const shade = i * 1.5 / vertex_count + 0.5;
+            colors.push(shade, shade, 0);
+        }
+    }
+    return colors;
+}
+function buildI400ColorAttributes(vertex_count, mesh) {
+    let colors = [];
+    for (let i = 0; i < vertex_count / 3; i++) {
+        // three vertices per triangle
+        for (let vert = 0; vert < 3; vert++) {
+            let shade = i * 3 / vertex_count;
+            if (shade > 0.75) {
+                shade = shade * 4 - 3;
+            }
+            if (mesh[(i * 3 + vert) * 3 + 1] < -0.5) {
+                colors.push(shade, 0, 0);
+            } else {
+                colors.push(shade, shade, shade);
+            }
+        }
+    }
+    return colors;
+}
+
+const g_terrainGenerator = new TerrainGenerator();
+let VBO1, VBO2;
+let g_islandSize = 5;
+let g_u_model_ref, g_u_camera_ref, g_u_projection_ref;
+let g_i400Matrix = new Matrix4();
+let g_leftPropMatrix = new Matrix4();
+let g_rightPropMatrix = new Matrix4();
+let g_planeMatrix = new Matrix4();
+let g_uboatMatrix = new Matrix4();
+let g_torpMatrix = new Matrix4();
+let g_explMatrix = new Matrix4();
+let g_islandMatrix = new Matrix4();
+const ISLAND_DIST = 15;
 function startRendering() {
-    // Initialize GPU's vertex and fragment shaders programs
     if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE)) {
-        console.log('Failed to intialize shaders.')
-        return
+        console.log('Failed to intialize shaders.');
+        return;
     }
 
-    // initialize the VBO
-    var i400BodyColors = buildI400ColorAttributes(g_i400BodyMesh.length / 3, g_i400BodyMesh)
-    var i400HatchColors = buildColorAttributes(g_i400HatchMesh.length / 3)
-    var i400PropColors = buildPropColorAttributes(g_i400PropMesh.length / 3)
-    var planeColors = buildPlaneColorAttributes(g_planeMesh.length / 3)
-    var uboatColors = buildColorAttributes(g_uboatMesh.length / 3)
-    var torpColors = buildColorAttributes(g_torpMesh.length / 3)
-    var explColors = buildExplColorAttributes(g_explMesh.length / 3)
+    const i400BodyColors = buildI400ColorAttributes(g_i400BodyMesh.length / 3, g_i400BodyMesh);
+    const i400HatchColors = buildColorAttributes(g_i400HatchMesh.length / 3);
+    const i400PropColors = buildPropColorAttributes(g_i400PropMesh.length / 3);
+    const planeColors = buildPlaneColorAttributes(g_planeMesh.length / 3);
+    const uboatColors = buildColorAttributes(g_uboatMesh.length / 3);
+    const torpColors = buildColorAttributes(g_torpMesh.length / 3);
+    const explColors = buildExplColorAttributes(g_explMesh.length / 3);
 
-    var terrainGenerator = new TerrainGenerator()
-    var seed = new Date().getMilliseconds()
-    var options = {
+    const seed = new Date().getMilliseconds();
+    const options = {
         width: 1000,
         height: 0.25,
         depth: 1000,
         seed: seed,
-        noisefn: "perlin", // "wave", "simplex" and "perlin"
+        noisefn: 'perlin', // 'wave', 'simplex' and 'perlin'
         roughness: 500
     }
-    var sea = terrainGenerator.generateTerrainMesh(options)
-    var seaColors = buildSeaColors(sea, options.height)
-    g_seaMesh = []
-    for (var i = 0; i < sea.length; i++) {
-        g_seaMesh.push(...sea[i])
+    const sea = g_terrainGenerator.generateTerrainMesh(options);
+    g_seaMesh = [];
+    for (let i = 0; i < sea.length; i++) {
+        g_seaMesh.push(...sea[i]);
     }
+    const seaColors = buildSeaColors(sea, options.height);
 
-    options = {
-        width: 15,
-        height: 2,
-        depth: 15,
-        seed: seed,
-        noisefn: "simplex", // "wave", "simplex" and "perlin"
-        roughness: 5
-    }
-    var island = terrainGenerator.generateTerrainMesh(options)
-    fixIsland(island, options.width, options.depth)
-    var islandColors = buildIslandColors(island, options.height)
-    g_islandMesh = []
-    for (var i = 0; i < island.length; i++) {
-        g_islandMesh.push(...island[i])
-    }
+    const data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(g_uboatMesh).concat(g_torpMesh).concat(g_explMesh).concat(g_seaMesh).
+        concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(seaColors);
+    VBO1 = initVBO(new Float32Array(data));
 
-    var data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(g_uboatMesh).concat(g_torpMesh).concat(g_explMesh).concat(g_seaMesh).concat(g_islandMesh).
-        concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(seaColors).concat(islandColors)
-    if (!initVBO(new Float32Array(data))) {
-        return
-    }
+    generateIsland(g_islandSize);
 
-    // Send our vertex data to the GPU
-    if (!setupVec3('a_Position', 0, 0)) {
-        return
-    }
-    if (!setupVec3('a_Color', 0, (g_i400BodyMesh.length + g_i400HatchMesh.length + g_i400PropMesh.length + g_planeMesh.length +
-        g_uboatMesh.length + g_torpMesh.length + g_explMesh.length + g_seaMesh.length + g_islandMesh.length) * FLOAT_SIZE)) {
-        return -1
-    }
+    g_u_model_ref = gl.getUniformLocation(gl.program, 'u_Model');
+    g_u_camera_ref = gl.getUniformLocation(gl.program, 'u_Camera');
+    g_u_projection_ref = gl.getUniformLocation(gl.program, 'u_Projection');
 
-    // Get references to GLSL uniforms
-    g_u_model_ref = gl.getUniformLocation(gl.program, 'u_Model')
-    g_u_camera_ref = gl.getUniformLocation(gl.program, 'u_Camera')
-    g_u_projection_ref = gl.getUniformLocation(gl.program, 'u_Projection')
+    g_i400Matrix.setRotate(180, 0, 1, 0).scale(0.015625, 0.015625, 0.015625);
+    g_leftPropMatrix.setTranslate(54.25, -4.7443, 2.2903);
+    g_rightPropMatrix.setTranslate(54.25, -4.7443, -2.2902);
+    g_uboatMatrix.setTranslate(g_islandSize / 2, 0, 0).rotate(90, 0, 1, 0).scale(0.03125, 0.03125, 0.03125);
+    g_torpMatrix.setTranslate(0.9, -0.04, 0).rotate(180, 0, 1, 0).scale(0.0625, 0.0625, 0.0625);
+    g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
+    g_islandMatrix.setTranslate(-g_islandSize / 2, 0.5, -g_islandSize / 2).scale(0.1, 1, 0.1);
 
-    // Reposition our mesh
-    g_i400Matrix = new Matrix4().setScale(0.015625, 0.015625, 0.015625)
-    g_leftPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, 2.2903)
-    g_rightPropMatrix = new Matrix4().setTranslate(54.25, -4.7443, -2.2902)
-    g_planeMatrix = new Matrix4()
-    g_uboatMatrix = new Matrix4().setTranslate(-UBOAT_DIST, 0, 0).scale(0.03125, 0.03125, 0.03125)
-    g_torpMatrix = new Matrix4().setTranslate(-0.9, -0.04, 0).scale(0.0625, 0.0625, 0.0625)
-    g_explMatrix = new Matrix4().setTranslate(-UBOAT_DIST + 0.5, 0, 0).scale(0.1, 0.1, 0.1)
-
-    g_cameraMatrix = new Matrix4().setLookAt(0, 1, 0, 0, 0, 0, 0, 1, 0)
-
-    // Setup a reasonable "basic" perspective projection
-    g_projectionMatrix = new Matrix4().setPerspective(90, 1.6, 0.1, 1000)
-
-    // Initially place the camera in "front" and above the submarine a bit
-    g_cameraDistance = 1.5
-    g_cameraAngle = -90
-    g_cameraHeight = .2
-
-    // Initialize control values
-    g_movingUp = false
-    g_movingDown = false
-    g_movingLeft = false
-    g_movingRight = false
-    g_movingForward = false
-    g_movingBackward = false
-
-    // Enable culling and depth tests
-    gl.enable(gl.CULL_FACE)
-    gl.enable(gl.DEPTH_TEST)
-
-    // Setup for ticks
-    g_lastFrameMS = Date.now()
-
-    g_isTargeting = false
-
-    tick()
+    gl.enable(gl.CULL_FACE);
+    gl.enable(gl.DEPTH_TEST);
 }
 
-// extra constants for cleanliness
-const CAMERA_SPEED_XZ = .01
-const CAMERA_SPEED_Y = .001
-const CAMERA_ROT_SPEED = .1
-const ROTATION_SPEED = 1
-const PLANE_SPEED = 0.125
-const SUB_SPEED = 0.001
-const TORP_SPEED = 0.001
+let g_i400BodyMesh = [];
+let g_i400HatchMesh = [];
+let g_i400PropMesh = [];
+let g_planeMesh = [];
+let g_uboatMesh = [];
+let g_torpMesh = [];
+let g_explMesh = [];
+async function loadOBJFiles() {
+    const files = [
+        { path: './resources/I400Body.obj', mesh: g_i400BodyMesh },
+        { path: './resources/I400Hatch.obj', mesh: g_i400HatchMesh },
+        { path: './resources/I400Prop.obj', mesh: g_i400PropMesh },
+        { path: './resources/Plane.obj', mesh: g_planeMesh },
+        { path: './resources/Uboat.obj', mesh: g_uboatMesh },
+        { path: './resources/Torpedo.obj', mesh: g_torpMesh },
+        { path: './resources/Explosion.obj', mesh: g_explMesh }
+    ];
 
-var g_planeLaunched = false
-var g_torpFired = false
+    await Promise.all(files.map(async (file) => {
+        const response = await fetch(file.path);
+        const data = await response.text();
+        return readObjFile(data, file.mesh);
+    }));
+}
+
+let g_movingUp = false;
+let g_movingDown = false;
+let g_movingLeft = false;
+let g_movingRight = false;
+let g_movingForward = false;
+let g_movingBackward = false;
+let g_rollingLeft = false;
+let g_rollingRight = false;
+function setupKeyBinds(){
+    document.addEventListener('keydown', function (event) {
+        const key = event.key.toLowerCase();
+        if (key === 'r') {
+            g_movingUp = true;
+        } else if (key === 'f') {
+            g_movingDown = true;
+        } else if (key === 'a') {
+            g_movingLeft = true;
+        } else if (key === 'd') {
+            g_movingRight = true;
+        } else if (key === 'w') {
+            g_movingForward = true;
+        } else if (key === 's') {
+            g_movingBackward = true;
+        } else if (key === 'q') {
+            g_rollingLeft = true;
+        } else if (key === 'e') {
+            g_rollingRight = true;
+        }
+    })
+
+    document.addEventListener('keyup', function (event) {
+        const key = event.key.toLowerCase();
+        if (key === 'r') {
+            g_movingUp = false;
+        } else if (key === 'f') {
+            g_movingDown = false;
+        } else if (key === 'a') {
+            g_movingLeft = false;
+        } else if (key === 'd') {
+            g_movingRight = false;
+        } else if (key === 'w') {
+            g_movingForward = false;
+        } else if (key === 's') {
+            g_movingBackward = false;
+        } else if (key === 'q') {
+            g_rollingLeft = false;
+        } else if (key === 'e') {
+            g_rollingRight = false;
+        }
+    })
+}
+
+let g_planeBtn;
+let g_torpBtn;
+let g_resetBtn;
+let g_sizeSld;
+let g_canvas, gl, g_lastFrameMS;
+async function main() {
+    setupKeyBinds();
+    g_planeBtn = document.getElementById('plane');
+    g_torpBtn = document.getElementById('torpedo');
+    g_resetBtn = document.getElementById('reset');
+    g_sizeSld = document.getElementById('size');
+
+    g_canvas = document.getElementById('canvas');
+    gl = getWebGLContext(g_canvas, true);
+    if (!gl) {
+        console.log('Failed to get the rendering context for WebGL');
+        return;
+    }
+
+    await loadOBJFiles();
+    startRendering();
+    g_lastFrameMS = Date.now();
+    tick();
+}
+
 function launchPlane() {
-    g_planeLaunched = true
-    document.getElementById("plane").disabled = true
-    document.getElementById("torpedo").disabled = false
-    document.getElementById("reset").disabled = false
+    g_planeLaunched = true;
+    g_planeBtn.disabled = true;
+    g_torpBtn.disabled = false;
+    g_resetBtn.disabled = false;
 }
 function fireTorp() {
-    g_torpFired = true
-    document.getElementById("torpedo").disabled = true
+    g_torpFired = true;
+    g_torpBtn.disabled = true;
 }
-
-var g_distance_sub = 0
-var g_distance_torp = 0
-var g_hit = false
-var g_explScale = 0
-
 function reset() {
-    g_planeLaunched = false
-    g_planeMatrix.setIdentity()
-    g_torpFired = false
-    g_distance_torp = 0
-    g_torpMatrix.setTranslate(-0.9, -0.04, 0).scale(0.0625, 0.0625, 0.0625)
-    g_hit = false
-    g_explScale = 0
-    g_explMatrix.setTranslate(-UBOAT_DIST + 0.5, 0, 0).scale(0.1, 0.1, 0.1)
-    document.getElementById("plane").disabled = false
-    document.getElementById("torpedo").disabled = true
-    document.getElementById("reset").disabled = true
+    g_planeLaunched = false;
+    g_planeMatrix.setIdentity();
+    g_torpFired = false;
+    g_torp_dist = 0;
+    g_torpMatrix.setTranslate(0.9, -0.04, 0).rotate(180, 0, 1, 0).scale(0.0625, 0.0625, 0.0625);
+    g_hit = false;
+    g_explScale = 0;
+    g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
+    g_planeBtn.disabled = false;
+    g_torpBtn.disabled = true;
+    g_resetBtn.disabled = true;
 }
 
-// function to apply all the logic for a single frame tick
-function tick() {
-    // time since the last frame
-    var deltaTime
-
-    // calculate deltaTime
-    var current_time = Date.now()
-    deltaTime = current_time - g_lastFrameMS
-    g_lastFrameMS = current_time
-
-    updateCameraPosition(deltaTime)
-
-    // rotate the arm constantly around the given axis (of the model)
-    var angle = -ROTATION_SPEED * deltaTime
-    g_leftPropMatrix.rotate(angle, 1, 0, 0)
-    g_rightPropMatrix.rotate(angle, 1, 0, 0)
-
-    var speed = -PLANE_SPEED * deltaTime
-    if (g_planeLaunched) {
-        g_planeMatrix.translate(speed, speed * Math.tan(-0.0625), 0)
-    }
-
-    speed = -TORP_SPEED * deltaTime
-    if (g_torpFired) {
-        g_distance_torp -= speed
-        if (g_distance_torp > UBOAT_DIST - 1.3) {
-            g_hit = true
-        }
-        g_torpMatrix = new Matrix4().setTranslate(speed, 0, 0).concat(g_torpMatrix).rotate(angle / 2, 1, 0, 0)
-    }
-
-    if (g_hit && g_explScale < 25) {
-        g_explScale += 0.1 * deltaTime
-    }
-    if (g_explScale >= 25) {
-        g_explMatrix.setScale(0, 0, 0)
-    }
-
-    g_distance_sub += SUB_SPEED * deltaTime
-
-    draw()
-
-    requestAnimationFrame(tick, g_canvas)
+function toggleDetach() {
+    g_isDetached = !g_isDetached;
 }
 
-// The y-offset of the map for rendering
-const MAP_Y_OFFSET = -0.125
-
-// draw to the screen on the next frame
-function draw() {
-    var cameraMatrix = calculateCameraPosition()
-
-    // Update with our global transformation matrices
-    gl.uniformMatrix4fv(g_u_model_ref, false, g_i400Matrix.elements)
-    gl.uniformMatrix4fv(g_u_camera_ref, false, cameraMatrix.elements)
-    gl.uniformMatrix4fv(g_u_projection_ref, false, g_projectionMatrix.elements)
-
-    // Clear the canvas with a black background
-    gl.clearColor(0.0, 0.75, 1.0, 1.0)
-    gl.clear(gl.COLOR_BUFFER_BIT)
-
-    // Draw our models
-    var first = 0, count = g_i400BodyMesh.length / 3
-    gl.drawArrays(gl.TRIANGLES, first, count)
-
-    first += count
-    count = g_i400HatchMesh.length / 3
-    gl.drawArrays(gl.TRIANGLES, first, count)
-
-    first += count
-    count = g_i400PropMesh.length / 3
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_leftPropMatrix).elements)
-    gl.drawArrays(gl.TRIANGLES, first, count)
-
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_rightPropMatrix).elements)
-    gl.drawArrays(gl.TRIANGLES, first, count)
-
-    first += count
-    count = g_planeMesh.length / 3
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_planeMatrix).elements)
-    gl.drawArrays(gl.TRIANGLES, first, count)
-
-    first += count
-    count = g_uboatMesh.length / 3
-    if (g_planeLaunched && g_explScale < 10) {
-        gl.uniformMatrix4fv(g_u_model_ref, false, g_uboatMatrix.elements)
-        gl.drawArrays(gl.TRIANGLES, first, count)
-    }
-
-    first += count
-    count = g_torpMesh.length / 3
-    if (g_torpFired && !g_hit) {
-        gl.uniformMatrix4fv(g_u_model_ref, false, g_torpMatrix.elements)
-        gl.drawArrays(gl.TRIANGLES, first, count)
-    }
-
-    first += count
-    count = g_explMesh.length / 3
-    if (g_hit) {
-        gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_explMatrix).scale(g_explScale, g_explScale, g_explScale).elements)
-        gl.drawArrays(gl.TRIANGLES, first, count)
-    }
-
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().scale(0.25, 0.25, 0.25).translate(g_distance_sub - 500, MAP_Y_OFFSET, -500).elements)
-    first += count
-    count = g_seaMesh.length / 3
-    gl.drawArrays(gl.TRIANGLES, first, count)
-
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().translate(-10, MAP_Y_OFFSET + 1, 0).elements)
-    first += count
-    count = g_islandMesh.length / 3
-    gl.drawArrays(gl.TRIANGLES, first, count)
-}
-
-/*
- * Helper function to update the camera position each frame
- */
-function updateCameraPosition(deltaTime) {
-    // move the camera based on user input
-    if (g_movingUp) {
-        g_cameraHeight += CAMERA_SPEED_Y * deltaTime
-    }
-    if (g_movingDown) {
-        g_cameraHeight -= CAMERA_SPEED_Y * deltaTime
-    }
-    if (g_movingLeft) {
-        g_cameraAngle += CAMERA_ROT_SPEED * deltaTime
-    }
-    if (g_movingRight) {
-        g_cameraAngle -= CAMERA_ROT_SPEED * deltaTime
-    }
-    if (g_movingForward) {
-        // note that moving "forward" means "towards the teapot"
-        g_cameraDistance -= CAMERA_SPEED_XZ * deltaTime
-        // we don't want to hit a distance of 0
-        g_cameraDistance = Math.max(g_cameraDistance, 0.5)
-    }
-    if (g_movingBackward) {
-        g_cameraDistance += CAMERA_SPEED_XZ * deltaTime
-    }
-}
-
-/*
- * Helper function to calculate camera position from the properties we update
- * Taken from the lecture 16 demos
- */
-function calculateCameraPosition() {
-    // Calculate the camera position from our angle and height
-    // we get to use a bit of clever 2D rotation math
-    // note that we can only do this because we're "fixing" our plane of motion
-    // if we wanted to allow arbitrary rotation, we would want quaternions!
-    var cameraPosition = new Vector3()
-    cameraPosition.x = Math.cos(Math.PI * g_cameraAngle / 180)
-    cameraPosition.y = g_cameraHeight
-    cameraPosition.z = Math.sin(Math.PI * g_cameraAngle / 180)
-    cameraPosition.normalize()
-
-    // calculate distance and turn into an array for matrix entry
-    var cameraPositionArray = [
-        cameraPosition.x * g_cameraDistance,
-        cameraPosition.y * g_cameraDistance,
-        cameraPosition.z * g_cameraDistance
-    ]
-
-    // Build a new lookat matrix each frame
-    return new Matrix4().setLookAt(...cameraPositionArray, 0, 0, 0, 0, 1, 0)
-}
-
-/*
- * Helper function to setup camera movement key binding logic
- * Taken from lecture 16 demos
- */
-function setupKeyBinds() {
-    // Start movement when the key starts being pressed
-    document.addEventListener('keydown', function (event) {
-        if (event.key == 'r') {
-            g_movingUp = true
-        }
-        else if (event.key == 'f') {
-            g_movingDown = true
-        }
-        else if (event.key == 'a') {
-            g_movingLeft = true
-        }
-        else if (event.key == 'd') {
-            g_movingRight = true
-        }
-        else if (event.key == 'w') {
-            g_movingForward = true
-        }
-        else if (event.key == 's') {
-            g_movingBackward = true
-        }
-    })
-
-    // End movement on key release
-    document.addEventListener('keyup', function (event) {
-        if (event.key == 'r') {
-            g_movingUp = false
-        }
-        else if (event.key == 'f') {
-            g_movingDown = false
-        }
-        else if (event.key == 'a') {
-            g_movingLeft = false
-        }
-        else if (event.key == 'd') {
-            g_movingRight = false
-        }
-        else if (event.key == 'w') {
-            g_movingForward = false
-        }
-        else if (event.key == 's') {
-            g_movingBackward = false
-        }
-    })
-}
-
-// Helper to construct colors
-// makes every triangle a slightly different shade of gray
-function buildColorAttributes(vertex_count) {
-    var colors = []
-    for (var i = 0; i < vertex_count / 3; i++) {
-        // three vertices per triangle
-        for (var vert = 0; vert < 3; vert++) {
-            var shade = i * 3 / vertex_count
-            colors.push(shade, shade, shade)
-        }
-    }
-    return colors
-}
-
-function buildI400ColorAttributes(vertex_count, mesh) {
-    var colors = []
-    for (var i = 0; i < vertex_count / 3; i++) {
-        // three vertices per triangle
-        for (var vert = 0; vert < 3; vert++) {
-            var shade = i * 3 / vertex_count
-            if (shade > 0.75) {
-                shade = shade * 4 - 3
-            }
-            if (mesh[(i * 3 + vert) * 3 + 1] < -0.5) {
-                colors.push(shade, 0, 0)
-            } else {
-                colors.push(shade, shade, shade)
-            }
-        }
-    }
-    return colors
-}
-
-function buildPropColorAttributes(vertex_count) {
-    var colors = []
-    for (var i = 0; i < vertex_count / 3; i++) {
-        // three vertices per triangle
-        for (var vert = 0; vert < 3; vert++) {
-            var shade = i * 1.5 / vertex_count + 0.5
-            colors.push(shade, shade, 0)
-        }
-    }
-    return colors
-}
-
-function buildPlaneColorAttributes(vertex_count) {
-    var colors = []
-    for (var i = 0; i < vertex_count / 3; i++) {
-        // three vertices per triangle
-        for (var vert = 0; vert < 3; vert++) {
-            var shade = i * 1.5 / vertex_count
-            colors.push(shade, 0.5, shade)
-        }
-    }
-    return colors
-}
-
-function buildExplColorAttributes(vertex_count) {
-    var colors = []
-    for (var i = 0; i < vertex_count / 3; i++) {
-        // three vertices per triangle
-        for (var vert = 0; vert < 3; vert++) {
-            colors.push(1, 1, 1)
-        }
-    }
-    return colors
-}
-
-function buildSeaColors(terrain, height) {
-    var colors = []
-    for (var i = 0; i < terrain.length; i++) {
-        // calculates the vertex color for each vertex independent of the triangle
-        // the rasterizer can help make this look "smooth"
-
-        // we use the y axis of each vertex alone for color
-        // higher "peaks" have more shade
-        var shade = (terrain[i][1] / height - 0.25) * 3 + 0.25
-        var color = [shade, shade, 1.0]
-
-        // give each triangle 3 colors
-        colors.push(...color)
-    }
-
-    return colors
-}
-
-function buildIslandColors(terrain, height) {
-    var colors = []
-    for (var i = 0; i < terrain.length; i++) {
-        // calculates the vertex color for each vertex independent of the triangle
-        // the rasterizer can help make this look "smooth"
-
-        // we use the y axis of each vertex alone for color
-        // higher "peaks" have more shade
-        var shade = (terrain[i][1] / height + 0.5) / 2
-        var color = [0.3, shade, 0]
-
-        // give each triangle 3 colors
-        colors.push(...color)
-    }
-
-    return colors
-}
-
-function fixIsland(terrain, width, depth) {
-    for (var i = 0; i < terrain.length; i++) {
-        if (terrain[i][0] < 0.1 * width || terrain[i][0] > 0.9 * width || terrain[i][2] < 0.1 * depth || terrain[i][2] > 0.9 * depth) {
-            terrain[i][1] = -10
-        }
-    }
-}
-
-/*
- * Initialize the VBO with the provided data
- * Assumes we are going to have "static" (unchanging) data
- */
-function initVBO(data) {
-    // get the VBO handle
-    var VBOloc = gl.createBuffer()
-    if (!VBOloc) {
-        return false
-    }
-
-    // Bind the VBO to the GPU array and copy `data` into that VBO
-    gl.bindBuffer(gl.ARRAY_BUFFER, VBOloc)
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
-
-    return true
-}
-
-/*
- * Helper function to load the given vec3 data chunk onto the VBO
- * Requires that the VBO already be setup and assigned to the GPU
- */
-function setupVec3(name, stride, offset) {
-    // Get the attribute by name
-    var attributeID = gl.getAttribLocation(gl.program, `${name}`)
-    if (attributeID < 0) {
-        console.log(`Failed to get the storage location of ${name}`)
-        return false
-    }
-
-    // Set how the GPU fills the a_Position variable with data from the GPU 
-    gl.vertexAttribPointer(attributeID, 3, gl.FLOAT, false, stride, offset)
-    gl.enableVertexAttribArray(attributeID)
-
-    return true
+function regenerate() {
+    g_islandSize = g_sizeSld.value;
+    generateIsland(g_islandSize);
+    g_islandMatrix.setTranslate(-g_islandSize / 2, 0.5, -g_islandSize / 2).scale(0.1, 1, 0.1);
+    g_uboatMatrix.setTranslate(g_islandSize / 2, 0, 0).rotate(90, 0, 1, 0).scale(0.03125, 0.03125, 0.03125);
+    g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
 }
