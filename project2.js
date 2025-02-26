@@ -108,7 +108,7 @@ function draw() {
 
     first += count;
     count = g_seaMesh.length / 3;
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().scale(0.25, 0.25, 0.25).translate(-g_distance_sea - 500, -0.125, -g_distance_sea - 500).elements);
+    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().scale(0.25, 0.25, 0.25).translate(-g_distance_sea - 100, -0.125, -g_distance_sea - 100).elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, VBO2);
@@ -532,6 +532,7 @@ function regenerate() {
     g_islandSize = g_sizeSld.value;
     generateIsland(g_islandSize);
     g_islandMatrix.setTranslate(-g_islandSize / 2, 0.5, -g_islandSize / 2).scale(0.1, 1, 0.1);
+    g_uboatAngle = 0;
     g_uboatMatrix.setTranslate(g_islandSize / 2, 0, 0).rotate(90, 0, 1, 0).scale(0.03125, 0.03125, 0.03125);
     g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
 }
