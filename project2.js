@@ -41,16 +41,16 @@ function calculateCamera() {
     const cameraZ = Math.sin(Math.PI * g_cameraAngle / 180);
     const cameraPositionArray = [
         cameraX * g_cameraDistance,
-        cameraY * g_cameraDistance,
+        cameraY * g_cameraDistance + g_lastHeight,
         cameraZ * g_cameraDistance
     ];
-    return new Matrix4().setLookAt(...cameraPositionArray, 0, 0, 0, 0, 1, 0);
+    return new Matrix4().setLookAt(...cameraPositionArray, 0, g_lastHeight, 0, 0, 1, 0);
 }
 
 const FLOAT_SIZE = 4
 function draw() {
-    gl.uniformMatrix4fv(g_u_camera_ref, false, calculateCamera().elements);
-    gl.uniformMatrix4fv(g_u_projection_ref, false, new Matrix4().setPerspective(90, 1.6, 0.1, 1000).elements);
+    gl.uniformMatrix4fv(g_u_cameraRef, false, calculateCamera().elements);
+    gl.uniformMatrix4fv(g_u_projectionRef, false, new Matrix4().setPerspective(90, 1.6, 0.1, 10000).elements);
 
     gl.clearColor(0.0, 0.75, 1.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -65,7 +65,7 @@ function draw() {
     }
 
     let first = 0, count = g_i400BodyMesh.length / 3;
-    gl.uniformMatrix4fv(g_u_model_ref, false, g_i400Matrix.elements);
+    gl.uniformMatrix4fv(g_u_modelRef, false, g_i400Matrix.elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
     first += count;
@@ -74,41 +74,41 @@ function draw() {
 
     first += count;
     count = g_i400PropMesh.length / 3;
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_leftPropMatrix).elements);
+    gl.uniformMatrix4fv(g_u_modelRef, false, new Matrix4(g_i400Matrix).concat(g_leftPropMatrix).elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_rightPropMatrix).elements);
+    gl.uniformMatrix4fv(g_u_modelRef, false, new Matrix4(g_i400Matrix).concat(g_rightPropMatrix).elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
     first += count;
     count = g_planeMesh.length / 3;
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_i400Matrix).concat(g_planeMatrix).elements);
+    gl.uniformMatrix4fv(g_u_modelRef, false, g_planeMatrix.elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
     first += count;
     count = g_uboatMesh.length / 3;
-    if (g_planeLaunched && g_explScale < 10) {
-        gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().setTranslate(ISLAND_DIST, 0, 0).concat(g_uboatMatrix).elements);
+    if (g_planeLaunched && g_explScale < 50) {
+        gl.uniformMatrix4fv(g_u_modelRef, false, new Matrix4().setTranslate(0, 0, -ISLAND_DIST).concat(g_uboatMatrix).elements);
         gl.drawArrays(gl.TRIANGLES, first, count);
     }
 
     first += count;
     count = g_torpMesh.length / 3;
     if (g_torpFired && !g_hit) {
-        gl.uniformMatrix4fv(g_u_model_ref, false, g_torpMatrix.elements);
+        gl.uniformMatrix4fv(g_u_modelRef, false, g_torpMatrix.elements);
         gl.drawArrays(gl.TRIANGLES, first, count);
     }
 
     first += count;
     count = g_explMesh.length / 3;
     if (g_hit) {
-        gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4(g_explMatrix).scale(g_explScale, g_explScale, g_explScale).elements);
+        gl.uniformMatrix4fv(g_u_modelRef, false, new Matrix4(g_explMatrix).scale(g_explScale, g_explScale, g_explScale).elements);
         gl.drawArrays(gl.TRIANGLES, first, count);
     }
 
     first += count;
     count = g_seaMesh.length / 3;
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().scale(0.25, 0.25, 0.25).translate(-g_distance_sea - 100, -0.125, -g_distance_sea - 100).elements);
+    gl.uniformMatrix4fv(g_u_modelRef, false, new Matrix4().setTranslate(0, 0, g_seaDist).concat(g_seaMatrix).elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, VBO2);
@@ -119,106 +119,159 @@ function draw() {
         return -1;
     }
 
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().setTranslate(ISLAND_DIST, 0, 0).concat(g_islandMatrix).elements);
+    gl.uniformMatrix4fv(g_u_modelRef, false, new Matrix4().setTranslate(0, 0, -ISLAND_DIST).concat(g_islandMatrix).elements);
     gl.drawArrays(gl.TRIANGLES, 0, g_islandMesh.length / 3);
 }
 
+function lerp(a, b, t) {
+    return (1 - t) * a + t * b;
+}
+
 let g_isDetached = false;
-let g_cameraPos = [-1.5, 0.5, 0];
+let g_cameraPos = [0, 30, 100];
 let g_cameraAxisX = [1, 0, 0];
 let g_cameraAxisY = [0, 1, 0];
 let g_cameraAxisZ = [0, 0, 1];
-let g_cameraRot = new Quaternion().setFromAxisAngle(0, 1, 0, 90);
-const CAMERA_SPEED_DETACH = 0.05;
+let g_cameraRot = new Quaternion();
+const CAMERA_SPEED = 1;
 const CAMERA_SPEED_ROT = 0.5;
-const CAMERA_SPEED = .001;
-const CAMERA_SPEED_ORBIT = 0.05;
-let g_cameraDistance = 1.5
-let g_cameraAngle = 90
-let g_cameraHeight = .2
+const CAMERA_SPEED_DIST = 0.1;
+const CAMERA_SPEED_ANGLE = 0.1;
+const CAMERA_SPEED_HEIGHT = 0.0025;
+let g_cameraDistance = 100;
+let g_cameraAngle = 90;
+let g_cameraHeight = 0.25;
 function updateCamera(deltaTime) {
-    const inputWS = g_movingForward - g_movingBackward
-    const inputAD = g_movingLeft - g_movingRight
-    const inputQE = g_rollingLeft - g_rollingRight
-    const inputRF = g_movingUp - g_movingDown
+    const inputWS = g_movingForward - g_movingBackward;
+    const inputAD = g_movingLeft - g_movingRight;
+    const inputQE = g_rollingLeft - g_rollingRight;
+    const inputRF = g_movingUp - g_movingDown;
 
     if (g_isDetached) {
         let rotation = new Quaternion();
         g_cameraPos = [
-            g_cameraPos[0] + g_cameraAxisX[0] * CAMERA_SPEED_DETACH * inputWS,
-            g_cameraPos[1] + g_cameraAxisX[1] * CAMERA_SPEED_DETACH * inputWS,
-            g_cameraPos[2] + g_cameraAxisX[2] * CAMERA_SPEED_DETACH * inputWS
+            g_cameraPos[0] - g_cameraAxisZ[0] * CAMERA_SPEED * inputWS,
+            g_cameraPos[1] - g_cameraAxisZ[1] * CAMERA_SPEED * inputWS,
+            g_cameraPos[2] - g_cameraAxisZ[2] * CAMERA_SPEED * inputWS
         ];
         rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisY, -CAMERA_SPEED_ROT * inputAD));
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisZ, -CAMERA_SPEED_ROT * inputRF));
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisX, CAMERA_SPEED_ROT * inputQE));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisX, -CAMERA_SPEED_ROT * inputRF));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisZ, -CAMERA_SPEED_ROT * inputQE));
         g_cameraRot.multiplySelf(rotation);
         rotation.inverse();
         rotation.multiplyVector3(g_cameraAxisX);
         rotation.multiplyVector3(g_cameraAxisY);
         rotation.multiplyVector3(g_cameraAxisZ);
     } else {
-        g_cameraDistance -= CAMERA_SPEED * deltaTime * inputWS;
-        g_cameraDistance = Math.max(g_cameraDistance, 0.5);
-        g_cameraAngle += CAMERA_SPEED_ORBIT * deltaTime * inputAD;
-        g_cameraHeight += CAMERA_SPEED * deltaTime * inputRF;
+        g_cameraDistance -= CAMERA_SPEED_DIST * deltaTime * inputWS;
+        g_cameraDistance = Math.max(g_cameraDistance, 10);
+        g_cameraAngle += CAMERA_SPEED_ANGLE * deltaTime * inputAD;
+        g_cameraHeight += CAMERA_SPEED_HEIGHT * deltaTime * inputRF;
     }
 }
 
 const ROTATION_SPEED = 1;
 let g_uboatAngle = 0;
-const PLANE_SPEED = 0.125;
-const TORP_SPEED = 0.001;
-const SEA_SPEED = 0.0005;
-let g_planeLaunched = false;
+const PLANE_SPEED = 0.15;
+const TORP_SPEED = 0.05;
+// const SEA_SPEED = 0.002;
+const SEA_SPEED = 0.01;
+let g_planeLaunched = true;
+let g_planeDist = 0;
 let g_torpFired = false;
-let g_torp_dist = 0;
+let g_torpDist = 50;
 let g_hit = false;
 let g_explScale = 0;
-let g_distance_sea = 0;
+let g_seaDist = 0;
+let g_lastRoll = 0;
+let g_lastHeight = 0;
+let g_lastPitch = 0;
 function tick() {
-    const current_time = Date.now();
-    const deltaTime = current_time - g_lastFrameMS;
-    g_lastFrameMS = current_time;
+    const currentTime = Date.now();
+    const deltaTime = currentTime - g_lastFrameMS;
+    g_lastFrameMS = currentTime;
 
     updateCamera(deltaTime);
 
     const angle = -ROTATION_SPEED * deltaTime;
-    g_leftPropMatrix.rotate(angle, 1, 0, 0);
-    g_rightPropMatrix.rotate(angle, 1, 0, 0);
+    g_leftPropMatrix.rotate(angle, 0, 0, 1);
+    g_rightPropMatrix.rotate(angle, 0, 0, 1);
     g_uboatAngle += angle / 50;
     if (g_uboatAngle < -360) {
         g_uboatAngle += 360;
     }
     g_uboatMatrix = new Matrix4().setRotate(angle / 50, 0, 1, 0).concat(g_uboatMatrix);
 
-    let speed = -PLANE_SPEED * deltaTime;
+    let speed = PLANE_SPEED * deltaTime;
     if (g_planeLaunched) {
-        g_planeMatrix.translate(speed, speed * Math.tan(-0.0625), 0);
+        g_planeMatrix.translate(0, speed * Math.tan(0.2), -speed);
     }
 
     speed = TORP_SPEED * deltaTime;
     if (g_torpFired) {
-        g_torp_dist += speed;
-        if (g_torp_dist > ISLAND_DIST - g_islandSize / 2 - 1 &&
-            g_torp_dist < ISLAND_DIST - g_islandSize / 2 - 0.8 &&
+        g_torpDist += speed;
+        if (g_torpDist > ISLAND_DIST - g_islandRadius - 1 &&
+            g_torpDist < ISLAND_DIST - g_islandRadius + 1 &&
             g_uboatAngle > -200 && g_uboatAngle < -160) {
             g_hit = true;
         }
-        g_torpMatrix = new Matrix4().setTranslate(speed, 0, 0).concat(g_torpMatrix).rotate(angle / 2, 1, 0, 0);
+        g_torpMatrix = new Matrix4().setTranslate(0, 0, -speed).concat(g_torpMatrix).rotate(angle / 2, 0, 0, 1);
     }
 
-    if (g_hit && g_explScale < 25) {
-        g_explScale += 0.1 * deltaTime;
+    if (g_hit && g_explScale < 150) {
+        g_explScale += deltaTime;
     }
-    if (g_explScale >= 25) {
+    if (g_explScale >= 150) {
         g_explMatrix.setScale(0, 0, 0);
     }
 
-    g_distance_sea += SEA_SPEED * deltaTime;
+    g_seaDist += SEA_SPEED * deltaTime;
+    if (g_seaDist > 1000) {
+        g_seaDist -= 1000;
+    }
+    const index = Math.round(g_sea.length / 2 + 900 - g_seaDist / 2500 * 3000);
+
+    let avgSideHeight = 0;
+    for (let i = index - 30; i < index + 30; i++) {
+        avgSideHeight += (g_sea[i + 3000][1] - g_sea[i - 3000][1]) * 3;
+    }
+    avgSideHeight /= 60;
+    const roll = Math.atan2(avgSideHeight, 2 * 5) * 180 / Math.PI;
+    const newRoll = lerp(g_lastRoll, roll, 0.005);
+
+    let avgHeight = 0;
+    for (let i = index - 30; i < index + 30; i++) {
+        if (g_sea[i][1] < 0) {
+            avgHeight += g_sea[i][1] * 3;
+        } else {
+            avgHeight += g_sea[i][1] * 5;
+        }
+    }
+    avgHeight /= 60;
+    const newHeight = lerp(g_lastHeight, avgHeight, 0.1);
+    const pitch = Math.atan2(newHeight - g_lastHeight, SEA_SPEED * deltaTime) * 180 / Math.PI;
+    const newPitch = lerp(g_lastPitch, pitch, 0.005);
+
+    g_i400Matrix.setTranslate(0, newHeight, 0).rotate(newPitch, 1, 0, 0).rotate(newRoll, 0, 0, 1);
+    g_lastRoll = newRoll;
+    g_lastHeight = newHeight;
+    g_lastPitch = newPitch;
 
     draw();
     requestAnimationFrame(tick, g_canvas);
+}
+
+let g_planeMatrix = new Matrix4();
+let g_uboatMatrix = new Matrix4();
+let g_torpMatrix = new Matrix4();
+let g_explMatrix = new Matrix4();
+let g_islandMatrix = new Matrix4();
+function resetMatrices() {
+    g_planeMatrix.setIdentity();
+    g_uboatMatrix.setTranslate(0, 0, -g_islandRadius).rotate(90, 0, 1, 0).scale(2, 2, 2);
+    g_torpMatrix.setTranslate(0, -0.5, -50).scale(5, 5, 5);
+    g_explMatrix.setTranslate(0, 0, g_islandRadius - ISLAND_DIST);
+    g_islandMatrix.setTranslate(-g_islandRadius, 25, -g_islandRadius).scale(5, 5, 5);
 }
 
 function initVBO(data) {
@@ -230,37 +283,36 @@ function initVBO(data) {
 
 function buildIslandColors(terrain, height) {
     let colors = [];
+    const border = height / 4;
     for (let i = 0; i < terrain.length; i++) {
-        const shade = (terrain[i][1] / height + 0.5) / 2;
-        colors.push(0.3, shade, 0);
-    }
-    return colors;
-}
-function fixIsland(terrain, size) {
-    for (let i = 0; i < terrain.length; i++) {
-        const distance = Math.pow(terrain[i][0] - size / 2, 2) + Math.pow(terrain[i][2] - size / 2, 2);
-        const overSize = distance - Math.pow(size / (3.2 - size / 150), 2);
-        if (overSize > 0) {
-            terrain[i][1] = terrain[i][1] * Math.pow(1.001, -overSize) - overSize / Math.pow(size, 1.85 - size / 500);
+        const overHeight = terrain[i][1] + border;
+        if (overHeight < 0) {
+            colors.push(1 - i % 3 / 20, 0.95, 0.85);
+        } else {
+            const shade = overHeight / height / 2;
+            colors.push(0.4 - shade, 0.6 - shade, 0);
         }
-    }
-}
-function buildSeaColors(terrain, height) {
-    let colors = []
-    for (let i = 0; i < terrain.length; i++) {
-        const shade = (terrain[i][1] / height - 0.25) * 3 + 0.25;
-        colors.push(shade, shade, 1.0);
     }
     return colors;
 }
 
-let g_seaMesh, g_islandMesh;
+function fixIsland(terrain, size) {
+    for (let i = 0; i < terrain.length; i++) {
+        const distance = Math.pow(terrain[i][0] - size / 2, 2) + Math.pow(terrain[i][2] - size / 2, 2);
+        const overSize = distance - Math.pow(size / 3, 2);
+        if (overSize > 0) {
+            terrain[i][1] = terrain[i][1] * Math.pow(1.01, -overSize) - overSize / size;
+        } else {
+            terrain[i][1] -= overSize * Math.pow(size, -1.5);
+        }
+    }
+}
+
 function generateIsland(size) {
-    size *= 10;
     const seed = new Date().getMilliseconds();
     const options = {
         width: size,
-        height: 0.5 + 0.002 * size,
+        height: 3 + 0.1 * size,
         depth: size,
         seed: seed,
         noisefn: 'perlin', // 'wave', 'simplex' and 'perlin'
@@ -277,6 +329,15 @@ function generateIsland(size) {
     VBO2 = initVBO(new Float32Array(g_islandMesh.concat(islandColors)));
 }
 
+function buildSeaColors(terrain, height) {
+    let colors = []
+    for (let i = 0; i < terrain.length; i++) {
+        const shade = (terrain[i][1] / height - 0.25) * 3 + 0.25;
+        colors.push(shade, shade, 1.0);
+    }
+    return colors;
+}
+
 function buildExplColorAttributes(vertex_count) {
     let colors = [];
     for (let i = 0; i < vertex_count; i++) {
@@ -284,6 +345,7 @@ function buildExplColorAttributes(vertex_count) {
     }
     return colors;
 }
+
 function buildColorAttributes(vertex_count) {
     let colors = [];
     for (let i = 0; i < vertex_count / 3; i++) {
@@ -294,6 +356,7 @@ function buildColorAttributes(vertex_count) {
     }
     return colors;
 }
+
 function buildPlaneColorAttributes(vertex_count) {
     let colors = [];
     for (let i = 0; i < vertex_count / 3; i++) {
@@ -304,6 +367,7 @@ function buildPlaneColorAttributes(vertex_count) {
     }
     return colors;
 }
+
 function buildPropColorAttributes(vertex_count) {
     let colors = [];
     for (let i = 0; i < vertex_count / 3; i++) {
@@ -314,6 +378,7 @@ function buildPropColorAttributes(vertex_count) {
     }
     return colors;
 }
+
 function buildI400ColorAttributes(vertex_count, mesh) {
     let colors = [];
     for (let i = 0; i < vertex_count / 3; i++) {
@@ -334,18 +399,16 @@ function buildI400ColorAttributes(vertex_count, mesh) {
 }
 
 const g_terrainGenerator = new TerrainGenerator();
+let g_sea, g_seaMesh = [], g_islandMesh;
 let VBO1, VBO2;
-let g_islandSize = 5;
-let g_u_model_ref, g_u_camera_ref, g_u_projection_ref;
+let g_islandSize = 50;
+let g_islandRadius;
+let g_u_modelRef, g_u_cameraRef, g_u_projectionRef;
 let g_i400Matrix = new Matrix4();
-let g_leftPropMatrix = new Matrix4();
-let g_rightPropMatrix = new Matrix4();
-let g_planeMatrix = new Matrix4();
-let g_uboatMatrix = new Matrix4();
-let g_torpMatrix = new Matrix4();
-let g_explMatrix = new Matrix4();
-let g_islandMatrix = new Matrix4();
-const ISLAND_DIST = 15;
+let g_leftPropMatrix = new Matrix4().setTranslate(-2.2903, -4.7443, 54.25);
+let g_rightPropMatrix = new Matrix4().setTranslate(2.2902, -4.7443, 54.25);
+let g_seaMatrix = new Matrix4().setScale(5, 5, 5).translate(-100, 0, -400);
+const ISLAND_DIST = 500;
 function startRendering() {
     if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE)) {
         console.log('Failed to intialize shaders.');
@@ -362,19 +425,18 @@ function startRendering() {
 
     const seed = new Date().getMilliseconds();
     const options = {
-        width: 1000,
-        height: 0.25,
-        depth: 1000,
+        width: 200,
+        height: 2,
+        depth: 500,
         seed: seed,
         noisefn: 'perlin', // 'wave', 'simplex' and 'perlin'
-        roughness: 500
+        roughness: 50
     }
-    const sea = g_terrainGenerator.generateTerrainMesh(options);
-    g_seaMesh = [];
-    for (let i = 0; i < sea.length; i++) {
-        g_seaMesh.push(...sea[i]);
+    g_sea = g_terrainGenerator.generateTerrainMesh(options);
+    for (let i = 0; i < g_sea.length; i++) {
+        g_seaMesh.push(...g_sea[i]);
     }
-    const seaColors = buildSeaColors(sea, options.height);
+    const seaColors = buildSeaColors(g_sea, options.height);
 
     const data = g_i400BodyMesh.concat(g_i400HatchMesh).concat(g_i400PropMesh).concat(g_planeMesh).concat(g_uboatMesh).concat(g_torpMesh).concat(g_explMesh).concat(g_seaMesh).
         concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(seaColors);
@@ -382,17 +444,13 @@ function startRendering() {
 
     generateIsland(g_islandSize);
 
-    g_u_model_ref = gl.getUniformLocation(gl.program, 'u_Model');
-    g_u_camera_ref = gl.getUniformLocation(gl.program, 'u_Camera');
-    g_u_projection_ref = gl.getUniformLocation(gl.program, 'u_Projection');
+    g_u_modelRef = gl.getUniformLocation(gl.program, 'u_Model');
+    g_u_cameraRef = gl.getUniformLocation(gl.program, 'u_Camera');
+    g_u_projectionRef = gl.getUniformLocation(gl.program, 'u_Projection');
 
-    g_i400Matrix.setRotate(180, 0, 1, 0).scale(0.015625, 0.015625, 0.015625);
-    g_leftPropMatrix.setTranslate(54.25, -4.7443, 2.2903);
-    g_rightPropMatrix.setTranslate(54.25, -4.7443, -2.2902);
-    g_uboatMatrix.setTranslate(g_islandSize / 2, 0, 0).rotate(90, 0, 1, 0).scale(0.03125, 0.03125, 0.03125);
-    g_torpMatrix.setTranslate(0.9, -0.04, 0).rotate(180, 0, 1, 0).scale(0.0625, 0.0625, 0.0625);
-    g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
-    g_islandMatrix.setTranslate(-g_islandSize / 2, 0.5, -g_islandSize / 2).scale(0.1, 1, 0.1);
+    g_islandRadius = g_islandSize * 5 / 2;
+    resetMatrices();
+    
 
     gl.enable(gl.CULL_FACE);
     gl.enable(gl.DEPTH_TEST);
@@ -496,32 +554,25 @@ async function main() {
 
     await loadOBJFiles();
     startRendering();
+    document.getElementById("loading").remove();
     g_lastFrameMS = Date.now();
     tick();
 }
 
-function launchPlane() {
-    g_planeLaunched = true;
-    g_planeBtn.disabled = true;
-    g_torpBtn.disabled = false;
-    g_resetBtn.disabled = false;
-}
 function fireTorp() {
+    g_torpBtn.disabled = true;
     g_torpFired = true;
-    g_torpBtn.disabled = true;
 }
+
 function reset() {
-    g_planeLaunched = false;
-    g_planeMatrix.setIdentity();
     g_torpFired = false;
-    g_torp_dist = 0;
-    g_torpMatrix.setTranslate(0.9, -0.04, 0).rotate(180, 0, 1, 0).scale(0.0625, 0.0625, 0.0625);
     g_hit = false;
+    g_uboatAngle = 0;
+    g_torpDist = 50;
     g_explScale = 0;
-    g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
-    g_planeBtn.disabled = false;
-    g_torpBtn.disabled = true;
-    g_resetBtn.disabled = true;
+    resetMatrices();
+
+    g_torpBtn.disabled = false;
 }
 
 function toggleDetach() {
@@ -530,9 +581,7 @@ function toggleDetach() {
 
 function regenerate() {
     g_islandSize = g_sizeSld.value;
+    g_islandRadius = g_islandSize * 5 / 2;
+    reset();
     generateIsland(g_islandSize);
-    g_islandMatrix.setTranslate(-g_islandSize / 2, 0.5, -g_islandSize / 2).scale(0.1, 1, 0.1);
-    g_uboatAngle = 0;
-    g_uboatMatrix.setTranslate(g_islandSize / 2, 0, 0).rotate(90, 0, 1, 0).scale(0.03125, 0.03125, 0.03125);
-    g_explMatrix.setTranslate(ISLAND_DIST - g_islandSize / 2, 0, 0).scale(0.1, 0.1, 0.1);
 }

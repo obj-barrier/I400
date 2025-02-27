@@ -17,21 +17,21 @@
     <script src="project2.js"></script>
 
     <!-- Setup the Canvas -->
-    <canvas id="canvas" width="1280" height="800">
+    <canvas id="canvas" width="800" height="500">
         Please use a browser that supports "canvas"
     </canvas>
 
+    <div id="loading">Loading...</div>
     <p>
-        <button id="plane" onclick="launchPlane()">Launch Plane</button>
-        <button id="torpedo" disabled onclick="fireTorp()">Fire Torpedo</button>
-        <button id="reset" disabled onclick="reset()">Reset</button>
+        <button id="torpedo" onclick="fireTorp()">Fire Torpedo</button>
+        <button id="reset" onclick="reset()">Reset</button>
     </p>
     <p>
         <button id="detach" onclick="toggleDetach()">Toggle Free Camera</button>
     </p>
     <p>
         Island Size: 
-        <input type="range" id="size" min="3" max="10" step="0.1" value="5">
+        <input type="range" id="size" min="30" max="100" step="1" value="50">
         <button id="regen" onclick="regenerate()">Regenerate Island</button>
     </p>
 </body>
