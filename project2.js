@@ -129,9 +129,9 @@ function lerp(a, b, t) {
 
 let g_isDetached = false;
 let g_cameraPos = [0, 30, 100];
-let g_cameraAxisX = [1, 0, 0];
-let g_cameraAxisY = [0, 1, 0];
-let g_cameraAxisZ = [0, 0, 1];
+let g_cameraAxisX = new Vector3([1, 0, 0]);
+let g_cameraAxisY = new Vector3([0, 1, 0]);
+let g_cameraAxisZ = new Vector3([0, 0, 1]);
 let g_cameraRot = new Quaternion();
 const CAMERA_SPEED = 1;
 const CAMERA_SPEED_ROT = 0.5;
@@ -142,6 +142,9 @@ let g_cameraDistance = 100;
 let g_cameraAngle = 90;
 let g_cameraHeight = 0.25;
 function updateCamera(deltaTime) {
+    const axisX = g_cameraAxisX.elements;
+    const axisY = g_cameraAxisY.elements;
+    const axisZ = g_cameraAxisZ.elements;
     const inputWS = g_movingForward - g_movingBackward;
     const inputAD = g_movingLeft - g_movingRight;
     const inputQE = g_rollingLeft - g_rollingRight;
@@ -150,13 +153,13 @@ function updateCamera(deltaTime) {
     if (g_isDetached) {
         let rotation = new Quaternion();
         g_cameraPos = [
-            g_cameraPos[0] - g_cameraAxisZ[0] * CAMERA_SPEED * inputWS,
-            g_cameraPos[1] - g_cameraAxisZ[1] * CAMERA_SPEED * inputWS,
-            g_cameraPos[2] - g_cameraAxisZ[2] * CAMERA_SPEED * inputWS
+            g_cameraPos[0] - axisZ[0] * CAMERA_SPEED * inputWS,
+            g_cameraPos[1] - axisZ[1] * CAMERA_SPEED * inputWS,
+            g_cameraPos[2] - axisZ[2] * CAMERA_SPEED * inputWS
         ];
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisY, -CAMERA_SPEED_ROT * inputAD));
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisX, -CAMERA_SPEED_ROT * inputRF));
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...g_cameraAxisZ, -CAMERA_SPEED_ROT * inputQE));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisY.elements, -CAMERA_SPEED_ROT * inputAD));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisX.elements, -CAMERA_SPEED_ROT * inputRF));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisZ.elements, -CAMERA_SPEED_ROT * inputQE));
         g_cameraRot.multiplySelf(rotation);
         rotation.inverse();
         rotation.multiplyVector3(g_cameraAxisX);
