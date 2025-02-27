@@ -157,9 +157,9 @@ function updateCamera(deltaTime) {
             g_cameraPos[1] - axisZ[1] * CAMERA_SPEED * inputWS,
             g_cameraPos[2] - axisZ[2] * CAMERA_SPEED * inputWS
         ];
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisY.elements, -CAMERA_SPEED_ROT * inputAD));
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisX.elements, -CAMERA_SPEED_ROT * inputRF));
-        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisZ.elements, -CAMERA_SPEED_ROT * inputQE));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisY, -CAMERA_SPEED_ROT * inputAD));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisX, -CAMERA_SPEED_ROT * inputRF));
+        rotation.multiplySelf(new Quaternion().setFromAxisAngle(...axisZ, -CAMERA_SPEED_ROT * inputQE));
         g_cameraRot.multiplySelf(rotation);
         rotation.inverse();
         rotation.multiplyVector3(g_cameraAxisX);
@@ -536,16 +536,16 @@ function setupKeyBinds(){
     })
 }
 
-let g_planeBtn;
 let g_torpBtn;
 let g_resetBtn;
+let g_instructionLbl;
 let g_sizeSld;
 let g_canvas, gl, g_lastFrameMS;
 async function main() {
     setupKeyBinds();
-    g_planeBtn = document.getElementById('plane');
     g_torpBtn = document.getElementById('torpedo');
     g_resetBtn = document.getElementById('reset');
+    g_instructionLbl = document.getElementById('instruction');
     g_sizeSld = document.getElementById('size');
 
     g_canvas = document.getElementById('canvas');
@@ -580,6 +580,11 @@ function reset() {
 
 function toggleDetach() {
     g_isDetached = !g_isDetached;
+    if (g_isDetached) {
+        g_instructionLbl.innerHTML = 'W/S: Move foward/backward&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/D: Yaw&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R/F: Pitch&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Q/E: Roll';
+    } else {
+        g_instructionLbl.innerHTML = 'W/S: Move closer/farther&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/D: Orbit left/right&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R/F: Move up/down';
+    }
 }
 
 function regenerate() {
