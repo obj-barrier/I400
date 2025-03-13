@@ -3,11 +3,14 @@ precision highp float;
 uniform mat4 u_Model;
 uniform mat4 u_Camera;
 uniform mat4 u_ModelInverseTranspose;
+uniform mat4 u_CameraProjectionInverse;
 
 uniform bool u_FlatLighting;
+uniform bool u_DrawSkybox;
 uniform vec3 u_Light;
 uniform float u_SpecPower;
 uniform sampler2D u_Texture;
+uniform samplerCube u_Skybox;
 
 varying vec3 v_Position;
 varying vec3 v_Color;
@@ -15,8 +18,13 @@ varying vec3 v_Normal;
 varying vec2 v_TexCoord;
 
 void main() {
-    if(u_FlatLighting) {
-        gl_FragColor = vec4(v_Color, 1.0);
+    if (u_FlatLighting) {
+        if(u_DrawSkybox) {
+            vec3 inversePosition = mat3(u_CameraProjectionInverse) * v_Position;
+            gl_FragColor = textureCube(u_Skybox, inversePosition);
+        } else {    
+            gl_FragColor = vec4(v_Color, 1.0);
+        }
     } else {
         // Calculate positions and normals
         vec3 worldPosition = vec3(u_Model * vec4(v_Position, 1.0));
@@ -40,11 +48,11 @@ void main() {
         float angle = max(dot(cameraDir, cameraReflectDir), 0.0);
         float specular = max(pow(angle, u_SpecPower), 0.0);
 
-        float ambient = 0.3;
+        float ambient = 0.2;
 
         // set constant colors for the lights
         vec3 diffuseColor = vec3(texture2D(u_Texture, v_TexCoord));
-        vec3 specularColor = vec3(1.0, 1.0, 1.0);
+        vec3 specularColor = vec3(1.0, 1.0, 0.8);
         // vec3 ambientColor = vec3(0.15, 0.1, 0.05);
 
         // add up and save our components
