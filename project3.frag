@@ -7,6 +7,8 @@ uniform mat4 u_CameraProjectionInverse;
 
 uniform bool u_FlatLighting;
 uniform bool u_DrawSkybox;
+uniform bool u_DrawSea;
+
 uniform vec3 u_Light;
 uniform float u_SpecPower;
 uniform sampler2D u_Texture;
@@ -42,7 +44,7 @@ void main() {
         vec3 cameraReflectDir = vec3(u_Camera * vec4(reflectDir, 0.0));
 
         // our camera is at the origin of camera space, so calculate direction from that
-        vec3 cameraDir = normalize(vec3(0.0, 0.0, 0.0) - cameraSpacePosition);
+        vec3 cameraDir = normalize(-cameraSpacePosition);
 
         // use the angle to calculate specular
         float angle = max(dot(cameraDir, cameraReflectDir), 0.0);
@@ -51,9 +53,13 @@ void main() {
         float ambient = 0.2;
 
         // set constant colors for the lights
-        vec3 diffuseColor = vec3(texture2D(u_Texture, v_TexCoord));
+        vec3 diffuseColor;
+        if (u_DrawSea) {
+            diffuseColor = vec3(0.4, 0.6, 0.8);
+        } else {
+            diffuseColor = vec3(texture2D(u_Texture, v_TexCoord));
+        }
         vec3 specularColor = vec3(1.0, 1.0, 0.8);
-        // vec3 ambientColor = vec3(0.15, 0.1, 0.05);
 
         // add up and save our components
         vec3 color = (ambient + diffuse) * diffuseColor + specular * specularColor;

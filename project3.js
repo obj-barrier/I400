@@ -30,10 +30,11 @@ function calculateCamera() {
     return new Matrix4().setLookAt(...cameraPositionArray, 0, 0, 0, 0, 1, 0);
 }
 
-const FLOAT_SIZE = 4
+const FLOAT_SIZE = 4;
 function draw() {
     gl.uniform1i(g_u_texture_ref, 0);
     gl.uniform1i(g_u_skybox_ref, 1);
+    gl.uniform1f(g_u_time_ref, (Date.now() - 1742263366621) / 1000);
     gl.uniform3fv(g_u_light_ref, new Float32Array([-500, 500, -1000]));
 
     const cameraMatrix = calculateCamera();
@@ -49,26 +50,28 @@ function draw() {
         return;
     }
     if (!setupVec(3, 'a_Color', 0, g_meshLen * FLOAT_SIZE)) {
-        return -1;
+        return;
     }
     if (!setupVec(3, 'a_Normal', 0, 2 * g_meshLen * FLOAT_SIZE)) {
-        return -1;
+        return;
     }
     if (!setupVec(2, 'a_TexCoord', 0, 3 * g_meshLen * FLOAT_SIZE)) {
-        return -1;
+        return;
     }
 
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1i(g_u_flatlighting_ref, false);
+    gl.uniform1f(g_u_specpower_ref, 4);
 
     // i400Body
     gl.bindTexture(gl.TEXTURE_2D, g_i400TexPointer);
     gl.uniformMatrix4fv(g_u_inversetranspose_ref, false, new Matrix4(g_i400Matrix).invert().transpose().elements);
-    gl.uniform1f(g_u_specpower_ref, 16)
 
     let first = 0, count = g_i400Body.mesh.length / 3;
     gl.uniformMatrix4fv(g_u_model_ref, false, g_i400Matrix.elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
+
+    gl.uniform1f(g_u_specpower_ref, 16);
 
     // i400Hatch
     first += count;
@@ -122,13 +125,19 @@ function draw() {
         gl.drawArrays(gl.TRIANGLES, first, count);
     }
 
+    gl.uniform1i(g_u_flatlighting_ref, false);
+    gl.uniform1i(g_u_drawSea_ref, true);
+
     // sea
     first += count;
     count = g_seaMesh.length / 3;
-    gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().setTranslate(0, 0, g_seaDist).concat(g_seaMatrix).elements);
+    gl.bindTexture(gl.TEXTURE_2D, g_seaTexPointer);
+    gl.uniformMatrix4fv(g_u_model_ref, false, g_seaMatrix.elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
     gl.activeTexture(gl.TEXTURE1);
+    gl.uniform1i(g_u_drawSea_ref, false);
+    gl.uniform1i(g_u_flatlighting_ref, true);
     gl.uniform1i(g_u_drawSkybox_ref, true);
 
     // skybox
@@ -169,7 +178,6 @@ function draw() {
     gl.uniform1i(g_u_flatlighting_ref, false);
 
     // island
-    gl.uniform1i(g_u_texture_ref, g_islandTexPointer);
     gl.bindTexture(gl.TEXTURE_2D, g_islandTexPointer);
     gl.uniformMatrix4fv(g_u_model_ref, false, new Matrix4().setTranslate(0, 0, -ISLAND_DIST).concat(g_islandMatrix).elements);
     gl.uniformMatrix4fv(g_u_inversetranspose_ref, false, new Matrix4().setTranslate(0, 0, -ISLAND_DIST).concat(g_islandMatrix).invert().transpose().elements);
@@ -230,18 +238,11 @@ const ROTATION_SPEED = 1;
 let g_uboatAngle = 0;
 const PLANE_SPEED = 0.15;
 const TORP_SPEED = 0.05;
-// const SEA_SPEED = 0.002;
-const SEA_SPEED = 0.01;
 let g_planeLaunched = true;
-let g_planeDist = 0;
 let g_torpFired = false;
 let g_torpDist = 50;
 let g_hit = false;
 let g_explScale = 0;
-let g_seaDist = 0;
-let g_lastRoll = 0;
-let g_lastHeight = 0;
-let g_lastPitch = 0;
 function tick() {
     const currentTime = Date.now();
     const deltaTime = currentTime - g_lastFrameMS;
@@ -249,14 +250,14 @@ function tick() {
 
     updateCamera(deltaTime);
 
-    const angle = -ROTATION_SPEED * deltaTime;
+    const angle = ROTATION_SPEED * deltaTime;
     g_leftPropMatrix.rotate(angle, 0, 0, 1);
     g_rightPropMatrix.rotate(angle, 0, 0, 1);
-    g_uboatAngle += angle / 50;
-    if (g_uboatAngle < -360) {
-        g_uboatAngle += 360;
+    g_uboatAngle += angle / 100;
+    if (g_uboatAngle > 360) {
+        g_uboatAngle -= 360;
     }
-    g_uboatMatrix = new Matrix4().setRotate(angle / 50, 0, 1, 0).concat(g_uboatMatrix);
+    g_uboatMatrix = new Matrix4().setRotate(angle / 100, 0, 1, 0).concat(g_uboatMatrix);
 
     let speed = PLANE_SPEED * deltaTime;
     if (g_planeLaunched) {
@@ -268,50 +269,18 @@ function tick() {
         g_torpDist += speed;
         if (g_torpDist > ISLAND_DIST - g_islandRadius - 1 &&
             g_torpDist < ISLAND_DIST - g_islandRadius + 1 &&
-            g_uboatAngle > -200 && g_uboatAngle < -160) {
+            g_uboatAngle > 160 && g_uboatAngle < 200) {
             g_hit = true;
         }
         g_torpMatrix = new Matrix4().setTranslate(0, 0, -speed).concat(g_torpMatrix).rotate(angle / 2, 0, 0, 1);
     }
 
     if (g_hit && g_explScale < 150) {
-        g_explScale += deltaTime;
+        g_explScale += deltaTime / 2;
     }
     if (g_explScale >= 150) {
         g_explMatrix.setScale(0, 0, 0);
     }
-
-    g_seaDist += SEA_SPEED * deltaTime;
-    if (g_seaDist > 1000) {
-        g_seaDist -= 1000;
-    }
-    const index = Math.round(g_sea.length / 2 + 900 - g_seaDist / 2500 * 3000);
-
-    let avgSideHeight = 0;
-    for (let i = index - 30; i < index + 30; i++) {
-        avgSideHeight += (g_sea[i + 3000][1] - g_sea[i - 3000][1]) * 3;
-    }
-    avgSideHeight /= 60;
-    const roll = Math.atan2(avgSideHeight, 2 * 5) * 180 / Math.PI;
-    const newRoll = lerp(g_lastRoll, roll, 0.005);
-
-    let avgHeight = 0;
-    for (let i = index - 30; i < index + 30; i++) {
-        if (g_sea[i][1] < 0) {
-            avgHeight += g_sea[i][1] * 3;
-        } else {
-            avgHeight += g_sea[i][1] * 5;
-        }
-    }
-    avgHeight /= 60;
-    const newHeight = lerp(g_lastHeight, avgHeight, 0.1);
-    const pitch = Math.atan2(newHeight - g_lastHeight, SEA_SPEED * deltaTime) * 180 / Math.PI;
-    const newPitch = lerp(g_lastPitch, pitch, 0.005);
-
-    g_i400Matrix.setTranslate(0, newHeight, 0).rotate(newPitch, 1, 0, 0).rotate(newRoll, 0, 0, 1);
-    g_lastRoll = newRoll;
-    g_lastHeight = newHeight;
-    g_lastPitch = newPitch;
 
     draw();
     requestAnimationFrame(tick, g_canvas);
@@ -320,7 +289,7 @@ function tick() {
 let g_i400Matrix = new Matrix4();
 let g_leftPropMatrix = new Matrix4().setTranslate(-2.2903, -4.7443, 54.25);
 let g_rightPropMatrix = new Matrix4().setTranslate(2.2902, -4.7443, 54.25);
-let g_seaMatrix = new Matrix4().setScale(5, 5, 5).translate(-100, 0, -400);
+let g_seaMatrix = new Matrix4().setScale(5, 5, 5).translate(-250, 0, -300);
 const ISLAND_DIST = 500;
 let g_planeMatrix = new Matrix4();
 let g_uboatMatrix = new Matrix4();
@@ -494,11 +463,11 @@ let VBO1, VBO2;
 let g_islandSize = 50;
 let g_islandRadius;
 let g_u_model_ref, g_u_camera_ref, g_u_projection_ref;
-let g_u_flatlighting_ref, g_u_drawSkybox_ref;
+let g_u_flatlighting_ref, g_u_drawSkybox_ref, g_u_drawSea_ref;
 let g_u_inversetranspose_ref, g_u_cameraProjectionInverse_ref;
 let g_u_light_ref, g_u_specpower_ref;
-let g_u_texture_ref, g_u_skybox_ref;
-let g_i400TexPointer, g_planeTexPointer, g_uboatTexPointer, g_islandTexPointer;
+let g_u_texture_ref, g_u_skybox_ref, g_u_time_ref;
+let g_i400TexPointer, g_planeTexPointer, g_uboatTexPointer, g_seaTexPointer, g_islandTexPointer;
 let g_skyboxTexPointer;
 let g_meshLen;
 function startRendering() {
@@ -517,8 +486,8 @@ function startRendering() {
 
     const seed = new Date().getMilliseconds();
     const options = {
-        width: 200,
-        height: 2,
+        width: 500,
+        height: 0,
         depth: 500,
         seed: seed,
         noisefn: 'perlin', // 'wave', 'simplex' and 'perlin'
@@ -532,7 +501,7 @@ function startRendering() {
 
     const VBOData = g_i400Body.mesh.concat(g_i400Hatch.mesh).concat(g_i400Prop.mesh).concat(g_plane.mesh).concat(g_uboat.mesh).concat(g_torpMesh).concat(g_explMesh).concat(g_seaMesh).concat(SQUARE_MESH)
         .concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(seaColors).concat(SQUARE_MESH)
-        .concat(g_i400Body.normals).concat(g_i400Hatch.normals).concat(g_i400Prop.normals).concat(g_plane.normals).concat(g_uboat.normals).concat(g_torpMesh).concat(g_explMesh).concat(g_seaMesh).concat(SQUARE_MESH)
+        .concat(g_i400Body.normals).concat(g_i400Hatch.normals).concat(g_i400Prop.normals).concat(g_plane.normals).concat(g_uboat.normals).concat(g_torpMesh).concat(g_explMesh).concat(seaColors).concat(SQUARE_MESH)
         .concat(g_i400Body.texCoords).concat(g_i400Hatch.texCoords).concat(g_i400Prop.texCoords).concat(g_plane.texCoords).concat(g_uboat.texCoords).concat(g_torpMesh).concat(g_explMesh).concat(g_seaMesh).concat(SQUARE_MESH);
     VBO1 = initVBO(new Float32Array(VBOData));
 
@@ -544,6 +513,7 @@ function startRendering() {
 
     g_u_flatlighting_ref = gl.getUniformLocation(gl.program, 'u_FlatLighting');
     g_u_drawSkybox_ref = gl.getUniformLocation(gl.program, 'u_DrawSkybox');
+    g_u_drawSea_ref = gl.getUniformLocation(gl.program, 'u_DrawSea');
     g_u_inversetranspose_ref = gl.getUniformLocation(gl.program, 'u_ModelInverseTranspose');
     g_u_cameraProjectionInverse_ref = gl.getUniformLocation(gl.program, 'u_CameraProjectionInverse');
 
@@ -551,6 +521,7 @@ function startRendering() {
     g_u_specpower_ref = gl.getUniformLocation(gl.program, 'u_SpecPower');
     g_u_texture_ref = gl.getUniformLocation(gl.program, 'u_Texture');
     g_u_skybox_ref = gl.getUniformLocation(gl.program, 'u_Skybox');
+    g_u_time_ref = gl.getUniformLocation(gl.program, 'u_Time');
 
     g_islandRadius = g_islandSize * 5 / 2;
     resetMatrices();
@@ -589,6 +560,14 @@ function startRendering() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
+    g_seaTexPointer = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, g_seaTexPointer);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, g_seaImage);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
     gl.activeTexture(gl.TEXTURE1);
 
     g_skyboxTexPointer = gl.createTexture();
@@ -617,6 +596,7 @@ async function loadGLSLFiles() {
 let g_i400Image = new Image();
 let g_planeImage = new Image();
 let g_uboatImage = new Image();
+let g_seaImage = new Image();
 let g_islandImage = new Image();
 let g_skybox = {
     posX: new Image(), negX: new Image(),
@@ -630,6 +610,8 @@ async function loadImageFiles() {
     await g_planeImage.decode();
     g_uboatImage.src = "resources/Uboat.png";
     await g_uboatImage.decode();
+    g_seaImage.src = "resources/Noise.jpg";
+    await g_seaImage.decode();
     g_islandImage.src = "resources/Island.png";
     await g_islandImage.decode();
 
@@ -729,7 +711,7 @@ function setupKeyBinds(){
 
 let g_torpBtn;
 let g_resetBtn;
-let g_instructionLbl;
+let g_instLabel;
 let g_sizeSld;
 let g_canvas, gl;
 let g_lastFrameMS;
@@ -737,7 +719,7 @@ async function main() {
     setupKeyBinds();
     g_torpBtn = document.getElementById('torpedo');
     g_resetBtn = document.getElementById('reset');
-    g_instructionLbl = document.getElementById('instruction');
+    g_instLabel = document.getElementById('instruction');
     g_sizeSld = document.getElementById('size');
 
     g_canvas = document.getElementById('canvas');
@@ -776,9 +758,9 @@ function reset() {
 function toggleDetach() {
     g_isDetached = !g_isDetached;
     if (g_isDetached) {
-        g_instructionLbl.innerHTML = 'W/S: Move foward/backward&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/D: Yaw&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R/F: Pitch&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Q/E: Roll';
+        g_instLabel.innerHTML = 'W/S: Move foward/backward&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/D: Yaw&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R/F: Pitch&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Q/E: Roll';
     } else {
-        g_instructionLbl.innerHTML = 'W/S: Move closer/farther&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/D: Orbit left/right&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R/F: Move up/down';
+        g_instLabel.innerHTML = 'W/S: Move closer/farther&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/D: Orbit left/right&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R/F: Move up/down';
     }
 }
 
