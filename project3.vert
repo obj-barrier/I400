@@ -3,7 +3,7 @@ uniform mat4 u_Camera;
 uniform mat4 u_Projection;
 
 uniform bool u_DrawSkybox;
-uniform bool u_DrawSea;
+uniform bool u_DrawOcean;
 
 attribute vec3 a_Position;
 attribute vec3 a_Color;
@@ -20,7 +20,7 @@ uniform float u_Time;
 void main() {
     if(u_DrawSkybox) {
         gl_Position = vec4(a_Position.xy, 0.99999, 1.0);
-    } else if (u_DrawSea) {
+    } else if (u_DrawOcean) {
         vec4 worldPos = u_Model * vec4(a_Position, 1.0);
         worldPos.y = sin(worldPos.z + u_Time) + sin((worldPos.x + u_Time) * 2.0) * 0.5;
         vec3 normal = normalize(vec3(0.0, 10.0, -cos(worldPos.z + u_Time)));

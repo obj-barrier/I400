@@ -7,7 +7,7 @@ uniform mat4 u_CameraProjectionInverse;
 
 uniform bool u_FlatLighting;
 uniform bool u_DrawSkybox;
-uniform bool u_DrawSea;
+uniform bool u_DrawOcean;
 
 uniform vec3 u_Light;
 uniform float u_SpecPower;
@@ -54,7 +54,7 @@ void main() {
 
         // set constant colors for the lights
         vec3 diffuseColor;
-        if (u_DrawSea) {
+        if (u_DrawOcean) {
             diffuseColor = vec3(0.4, 0.6, 0.8);
         } else {
             diffuseColor = vec3(texture2D(u_Texture, v_TexCoord));
