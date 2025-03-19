@@ -30,7 +30,6 @@ function calculateCamera() {
     return new Matrix4().setLookAt(...g_cameraPos, 0, 0, 0, 0, 1, 0);
 }
 
-const FLOAT_SIZE = 4;
 function draw(deltaTime) {
     const cameraMatrix = calculateCamera();
     const projectionMatrix = new Matrix4().setPerspective(90, 1.6, 0.1, 10000);
@@ -39,14 +38,10 @@ function draw(deltaTime) {
     gl.useProgram(gl.program);
     gl.uniform1i(g_u_texture_ref, 8);
     gl.uniform1i(g_u_skybox_ref, 9);
-    gl.uniform1f(g_u_time_ref, (Date.now() - 1742263366621) / 1000);
-    gl.uniform3fv(g_u_light_ref, new Float32Array([-500, 500, -1000]));
+    gl.uniform3fv(g_u_light_ref, new Float32Array([-2, 1, -2]));
 
     gl.uniformMatrix4fv(g_u_camera_ref, false, cameraMatrix.elements);
     gl.uniformMatrix4fv(g_u_projection_ref, false, projectionMatrix.elements);
-
-    // gl.clearColor(0.0, 0.75, 1.0, 1.0);
-    // gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, VBO1);
     if (!setupVec(3, 'a_Position', 0, 0)) {
@@ -66,7 +61,8 @@ function draw(deltaTime) {
 
     gl.activeTexture(gl.TEXTURE8);
     gl.uniform1i(g_u_flatlighting_ref, false);
-    gl.uniform1f(g_u_specpower_ref, 4);
+    gl.uniform1f(g_u_specpower_ref, 16);
+    gl.uniform1f(g_u_specInten_ref, 0.5);
 
     // i400Body
     gl.bindTexture(gl.TEXTURE_2D, g_i400TexPointer);
@@ -76,7 +72,7 @@ function draw(deltaTime) {
     gl.uniformMatrix4fv(g_u_model_ref, false, g_i400Matrix.elements);
     gl.drawArrays(gl.TRIANGLES, first, count);
 
-    gl.uniform1f(g_u_specpower_ref, 16);
+    gl.uniform1f(g_u_specInten_ref, 2);
 
     // i400Hatch
     first += count;
@@ -130,19 +126,7 @@ function draw(deltaTime) {
         gl.drawArrays(gl.TRIANGLES, first, count);
     }
 
-    gl.uniform1i(g_u_flatlighting_ref, false);
-    gl.uniform1i(g_u_drawOcean_ref, true);
-
-    // ocean
-    first += count;
-    count = g_oceanMesh.length / 3;
-    gl.bindTexture(gl.TEXTURE_2D, g_oceanTexPointer);
-    gl.uniformMatrix4fv(g_u_model_ref, false, g_oceanMatrix.elements);
-    // gl.drawArrays(gl.TRIANGLES, first, count);
-
     gl.activeTexture(gl.TEXTURE9);
-    gl.uniform1i(g_u_drawOcean_ref, false);
-    gl.uniform1i(g_u_flatlighting_ref, true);
     gl.uniform1i(g_u_drawSkybox_ref, true);
 
     // skybox
@@ -181,6 +165,8 @@ function draw(deltaTime) {
     }
 
     gl.uniform1i(g_u_flatlighting_ref, false);
+    gl.uniform1f(g_u_specpower_ref, 4);
+    gl.uniform1f(g_u_specInten_ref, 1);
 
     // island
     gl.bindTexture(gl.TEXTURE_2D, g_islandTexPointer);
@@ -253,6 +239,7 @@ let g_torpFired = false;
 let g_torpDist = 50;
 let g_hit = false;
 let g_explScale = 0;
+let g_skyColor = SKY_COLOR;
 function tick() {
     const currentTime = Date.now();
     const deltaTime = currentTime - g_lastFrameMS;
@@ -263,11 +250,11 @@ function tick() {
     const angle = ROTATION_SPEED * deltaTime;
     g_leftPropMatrix.rotate(angle, 0, 0, 1);
     g_rightPropMatrix.rotate(angle, 0, 0, 1);
-    g_uboatAngle += angle / 100;
+    g_uboatAngle += angle / 50;
     if (g_uboatAngle > 360) {
         g_uboatAngle -= 360;
     }
-    g_uboatMatrix = new Matrix4().setRotate(angle / 100, 0, 1, 0).concat(g_uboatMatrix);
+    g_uboatMatrix = new Matrix4().setRotate(angle / 50, 0, 1, 0).concat(g_uboatMatrix);
 
     let speed = PLANE_SPEED * deltaTime;
     if (g_planeLaunched) {
@@ -281,15 +268,21 @@ function tick() {
             g_torpDist < ISLAND_DIST - g_islandRadius + 1 &&
             g_uboatAngle > 160 && g_uboatAngle < 200) {
             g_hit = true;
+            gl.uniform1f(g_u_explDist_ref, g_torpDist);
         }
         g_torpMatrix = new Matrix4().setTranslate(0, 0, -speed).concat(g_torpMatrix).rotate(angle / 2, 0, 0, 1);
     }
 
     if (g_hit && g_explScale < 150) {
         g_explScale += deltaTime / 2;
-    }
-    if (g_explScale >= 150) {
+        const brightness = 15 - g_explScale / 10;
+        gl.uniform1f(g_u_explInten_ref, brightness);
+        g_skyColor = SKY_COLOR.map(color => color + brightness);
+
+    } else if (g_explScale >= 150) {
         g_explMatrix.setScale(0, 0, 0);
+        gl.uniform1f(g_u_explInten_ref, 0);
+        g_skyColor = SKY_COLOR;
     }
 
     draw(deltaTime / 1000);
@@ -299,7 +292,6 @@ function tick() {
 let g_i400Matrix = new Matrix4();
 let g_leftPropMatrix = new Matrix4().setTranslate(-2.2903, -4.7443, 54.25);
 let g_rightPropMatrix = new Matrix4().setTranslate(2.2902, -4.7443, 54.25);
-let g_oceanMatrix = new Matrix4().setScale(5, 5, 5).translate(-250, 0, -300);
 const ISLAND_DIST = 500;
 let g_planeMatrix = new Matrix4();
 let g_uboatMatrix = new Matrix4();
@@ -378,9 +370,10 @@ function generateIsland(size) {
     }
 
     g_islandTexCoords = [];
-    const border = options.height / 4;
     for (let i = 0; i < island.length; i++) {
-        if (island[i][1] + border < 0) {
+        const distance = Math.pow(island[i][0] - size / 2, 2) + Math.pow(island[i][2] - size / 2, 2);
+        const overSize = distance - Math.pow(size / 3, 2);
+        if (overSize > size) {
             g_islandTexCoords.push(island[i][0] / size / 2, island[i][2] / size / 2);
         } else {
             g_islandTexCoords.push(island[i][0] / size / 2 + 0.5, island[i][2] / size / 2 + 0.5);
@@ -388,15 +381,6 @@ function generateIsland(size) {
     }
 
     VBO2 = initVBO(new Float32Array(g_islandMesh.concat(islandColors).concat(g_islandNormals).concat(g_islandTexCoords)));
-}
-
-function buildOceanColors(terrain, height) {
-    let colors = []
-    for (let i = 0; i < terrain.length; i++) {
-        const shade = (terrain[i][1] / height - 0.25) * 3 + 0.25;
-        colors.push(shade, shade, 1.0);
-    }
-    return colors;
 }
 
 function buildExplColorAttributes(vertex_count) {
@@ -460,7 +444,6 @@ function buildI400ColorAttributes(vertex_count, mesh) {
 }
 
 const g_terrainGenerator = new TerrainGenerator();
-let g_ocean, g_oceanMesh = [];
 const SQUARE_MESH = [
     1, 1, 1,
     -1, 1, 1,
@@ -473,17 +456,18 @@ let VBO1, VBO2;
 let g_islandSize = 50;
 let g_islandRadius;
 let g_u_model_ref, g_u_camera_ref, g_u_projection_ref;
-let g_u_flatlighting_ref, g_u_drawSkybox_ref, g_u_drawOcean_ref;
+let g_u_flatlighting_ref, g_u_drawSkybox_ref;
 let g_u_inversetranspose_ref, g_u_cameraProjectionInverse_ref;
-let g_u_light_ref, g_u_specpower_ref;
-let g_u_texture_ref, g_u_skybox_ref, g_u_time_ref;
-let g_i400TexPointer, g_planeTexPointer, g_uboatTexPointer, g_oceanTexPointer, g_islandTexPointer;
+let g_u_light_ref, g_u_specpower_ref, g_u_specInten_ref;
+let g_u_texture_ref, g_u_skybox_ref;
+let g_u_explDist_ref, g_u_explInten_ref;
+let g_i400TexPointer, g_planeTexPointer, g_uboatTexPointer, g_islandTexPointer;
 let g_skyboxTexPointer;
 let g_meshLen;
 
 let g_simulator;
 function startRendering() {
-    g_simulator = new Simulator(g_canvas, window.innerWidth, window.innerHeight);
+    g_simulator = new Simulator();
 
     if (!initShaders(gl, g_vshader, g_fshader)) {
         console.log('Failed to intialize shaders.');
@@ -498,25 +482,10 @@ function startRendering() {
     const torpColors = buildColorAttributes(g_torpMesh.length / 3);
     const explColors = buildExplColorAttributes(g_explMesh.length / 3);
 
-    const seed = new Date().getMilliseconds();
-    const options = {
-        width: 500,
-        height: 0,
-        depth: 500,
-        seed: seed,
-        noisefn: 'perlin', // 'wave', 'simplex' and 'perlin'
-        roughness: 50
-    }
-    g_ocean = g_terrainGenerator.generateTerrainMesh(options);
-    for (let i = 0; i < g_ocean.length; i++) {
-        g_oceanMesh.push(...g_ocean[i]);
-    }
-    const oceanColors = buildOceanColors(g_ocean, options.height);
-
-    const VBOData = g_i400Body.mesh.concat(g_i400Hatch.mesh).concat(g_i400Prop.mesh).concat(g_plane.mesh).concat(g_uboat.mesh).concat(g_torpMesh).concat(g_explMesh).concat(g_oceanMesh).concat(SQUARE_MESH)
-        .concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(oceanColors).concat(SQUARE_MESH)
-        .concat(g_i400Body.normals).concat(g_i400Hatch.normals).concat(g_i400Prop.normals).concat(g_plane.normals).concat(g_uboat.normals).concat(g_torpMesh).concat(g_explMesh).concat(oceanColors).concat(SQUARE_MESH)
-        .concat(g_i400Body.texCoords).concat(g_i400Hatch.texCoords).concat(g_i400Prop.texCoords).concat(g_plane.texCoords).concat(g_uboat.texCoords).concat(g_torpMesh).concat(g_explMesh).concat(g_oceanMesh).concat(SQUARE_MESH);
+    const VBOData = g_i400Body.mesh.concat(g_i400Hatch.mesh).concat(g_i400Prop.mesh).concat(g_plane.mesh).concat(g_uboat.mesh).concat(g_torpMesh).concat(g_explMesh).concat(SQUARE_MESH)
+        .concat(i400BodyColors).concat(i400HatchColors).concat(i400PropColors).concat(planeColors).concat(uboatColors).concat(torpColors).concat(explColors).concat(SQUARE_MESH)
+        .concat(g_i400Body.normals).concat(g_i400Hatch.normals).concat(g_i400Prop.normals).concat(g_plane.normals).concat(g_uboat.normals).concat(g_torpMesh).concat(g_explMesh).concat(SQUARE_MESH)
+        .concat(g_i400Body.texCoords).concat(g_i400Hatch.texCoords).concat(g_i400Prop.texCoords).concat(g_plane.texCoords).concat(g_uboat.texCoords).concat(g_torpMesh).concat(g_explMesh).concat(SQUARE_MESH);
     VBO1 = initVBO(new Float32Array(VBOData));
 
     generateIsland(g_islandSize);
@@ -527,15 +496,18 @@ function startRendering() {
 
     g_u_flatlighting_ref = gl.getUniformLocation(gl.program, 'u_FlatLighting');
     g_u_drawSkybox_ref = gl.getUniformLocation(gl.program, 'u_DrawSkybox');
-    g_u_drawOcean_ref = gl.getUniformLocation(gl.program, 'u_DrawOcean');
     g_u_inversetranspose_ref = gl.getUniformLocation(gl.program, 'u_ModelInverseTranspose');
     g_u_cameraProjectionInverse_ref = gl.getUniformLocation(gl.program, 'u_CameraProjectionInverse');
 
     g_u_light_ref = gl.getUniformLocation(gl.program, 'u_Light');
     g_u_specpower_ref = gl.getUniformLocation(gl.program, 'u_SpecPower');
+    g_u_specInten_ref = gl.getUniformLocation(gl.program, 'u_SpecInten');
+
     g_u_texture_ref = gl.getUniformLocation(gl.program, 'u_Texture');
     g_u_skybox_ref = gl.getUniformLocation(gl.program, 'u_Skybox');
-    g_u_time_ref = gl.getUniformLocation(gl.program, 'u_Time');
+
+    g_u_explDist_ref = gl.getUniformLocation(gl.program, 'u_ExplDist');
+    g_u_explInten_ref = gl.getUniformLocation(gl.program, 'u_ExplInten');
 
     g_islandRadius = g_islandSize * 5 / 2;
     resetMatrices();
@@ -574,14 +546,6 @@ function startRendering() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-    g_oceanTexPointer = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, g_oceanTexPointer);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, g_oceanImage);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
     gl.activeTexture(gl.TEXTURE9);
 
     g_skyboxTexPointer = gl.createTexture();
@@ -594,23 +558,19 @@ function startRendering() {
     gl.texImage2D(gl.TEXTURE_CUBE_MAP_NEGATIVE_Z, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, g_skybox.negZ);
     gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
 
-    // gl.enable(gl.CULL_FACE);
-    // gl.enable(gl.DEPTH_TEST);
-
     g_meshLen = g_i400Body.mesh.length + g_i400Hatch.mesh.length + g_i400Prop.mesh.length + g_plane.mesh.length
-        + g_uboat.mesh.length + g_torpMesh.length + g_explMesh.length + g_oceanMesh.length + SQUARE_MESH.length;
+        + g_uboat.mesh.length + g_torpMesh.length + g_explMesh.length + SQUARE_MESH.length;
 }
 
 let g_vshader, g_fshader;
 async function loadGLSLFiles() {
-    g_vshader = await fetch('./project3.vert').then(response => response.text()).then((x) => x);
-    g_fshader = await fetch('./project3.frag').then(response => response.text()).then((x) => x);
+    g_vshader = await fetch('./final_project.vert').then(response => response.text()).then((x) => x);
+    g_fshader = await fetch('./final_project.frag').then(response => response.text()).then((x) => x);
 }
 
 let g_i400Image = new Image();
 let g_planeImage = new Image();
 let g_uboatImage = new Image();
-let g_oceanImage = new Image();
 let g_islandImage = new Image();
 let g_skybox = {
     posX: new Image(), negX: new Image(),
@@ -624,8 +584,6 @@ async function loadImageFiles() {
     await g_planeImage.decode();
     g_uboatImage.src = "resources/Uboat.png";
     await g_uboatImage.decode();
-    g_oceanImage.src = "resources/Noise.jpg";
-    await g_oceanImage.decode();
     g_islandImage.src = "resources/Island.png";
     await g_islandImage.decode();
 
