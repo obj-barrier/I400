@@ -38,7 +38,7 @@ function draw(deltaTime) {
     gl.useProgram(gl.program);
     gl.uniform1i(g_u_texture_ref, 8);
     gl.uniform1i(g_u_skybox_ref, 9);
-    gl.uniform3fv(g_u_light_ref, new Float32Array([-2, 1, -2]));
+    gl.uniform3fv(g_u_light_ref, new Float32Array([-1, 1, -2]));
 
     gl.uniformMatrix4fv(g_u_camera_ref, false, cameraMatrix.elements);
     gl.uniformMatrix4fv(g_u_projection_ref, false, projectionMatrix.elements);
